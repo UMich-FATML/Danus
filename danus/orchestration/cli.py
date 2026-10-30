@@ -1,4 +1,4 @@
-"""``danus`` — the main agent's control surface over codex workers.
+"""``danus`` — the main agent's control surface over DSH workers.
 
     danus list   [--json]
     danus new    <project> [--roles high:3,xhigh:4] [--model M]
@@ -32,6 +32,7 @@ from typing import Dict, List, Optional
 
 from danus.execution import layout as L
 from danus.execution.scaffold import atomic_write, do_new, spawn_loop
+from danus import checkpoints
 
 __all__ = [
     "do_new", "do_assign", "do_start", "do_status", "worker_status",
@@ -97,7 +98,8 @@ def do_assign(target: str, task: str) -> Dict:
         raise SystemExit(f"no such worker: {project}/{worker}")
     if not task.strip():
         raise SystemExit("refusing to assign an empty task")
-    atomic_write(wl.task, task if task.endswith("\n") else task + "\n")
+    with checkpoints.mutation_lock(wl.project_dir):
+        atomic_write(wl.task, task if task.endswith("\n") else task + "\n")
     return {"worker": f"{project}/{worker}", "task_file": str(wl.task)}
 
 
@@ -107,6 +109,16 @@ def do_assign(target: str, task: str) -> Dict:
 
 def do_finalize(project: str, fact_ids: List[str],
                 paper_id: Optional[str] = None) -> Dict:
+    """Validate and record final targets under the restore mutation fence."""
+    pdir = L.project_dir(project)
+    if not pdir.is_dir():
+        raise SystemExit(f"no such project: {project}")
+    with checkpoints.mutation_lock(pdir):
+        return _finalize_locked(project, fact_ids, paper_id)
+
+
+def _finalize_locked(project: str, fact_ids: List[str],
+                     paper_id: Optional[str] = None) -> Dict:
     """Record the finalized target theorem(s) for a PAPER of a project in that
     paper's TARGET.md — the durable slot write-paper reads (never a guess). The
     default paper writes the LEGACY ``<project>/TARGET.md``; a non-default
@@ -164,6 +176,13 @@ def do_finalize(project: str, fact_ids: List[str],
 # --------------------------------------------------------------------------- #
 
 def _start_one(wl: L.WorkerLayout) -> str:
+    # Restore checks liveness while holding this same fence. A managed worker
+    # cannot start in the gap between that check and durable replacement.
+    with checkpoints.mutation_lock(wl.project_dir):
+        return _start_one_locked(wl)
+
+
+def _start_one_locked(wl: L.WorkerLayout) -> str:
     """Returns 'started' / 'already-running' / 'locked'. Idempotent via an flock
     on .pid.lock; clears a stale .stop before spawning."""
     wl.dir.mkdir(parents=True, exist_ok=True)
@@ -176,6 +195,10 @@ def _start_one(wl: L.WorkerLayout) -> str:
             return "locked"
         if _alive(_read_pid(wl)):
             return "already-running"
+        child = checkpoints.worker_child_identity(wl.dir)
+        if checkpoints.worker_child_active(child):
+            return "orphaned-child (stop --force first)"
+        (wl.dir / ".dsh-child.json").unlink(missing_ok=True)
         wl.stop.unlink(missing_ok=True)  # clear a stale stop flag
         pid = spawn_loop(wl.dir)
         atomic_write(wl.pid, str(pid))
@@ -250,11 +273,21 @@ def do_list() -> List[Dict]:
                 meta = json.loads(mp.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
                 meta = {}
-        workers = L.list_workers(project)
+        error = None
+        try:
+            workers = L.list_workers(project)
+        except (ValueError, OSError) as exc:
+            # Diagnostics must remain usable for damaged state. Do not infer a
+            # replacement roster from orphaned directories (restores leave logs).
+            workers = []
+            error = str(exc)
         live = sum(1 for w in workers
                    if _alive(_read_pid(L.WorkerLayout(L.worker_dir(project, w)))))
-        out.append({"project": project, "workers": len(workers), "live": live,
-                    "model": meta.get("model", "—")})
+        row = {"project": project, "workers": len(workers), "live": live,
+               "model": meta.get("model", "—")}
+        if error:
+            row["error"] = error
+        out.append(row)
     return out
 
 
@@ -262,7 +295,8 @@ def _fmt_list(rows: List[Dict]) -> str:
     head = f"{'PROJECT':<24}{'WORKERS':>8}{'LIVE':>6}  {'MODEL':<12}"
     lines = [head, "-" * len(head)]
     for r in rows:
-        lines.append(f"{r['project']:<24}{r['workers']:>8}{r['live']:>6}  {str(r['model']):<12}")
+        suffix = f"  ERROR: {r['error']}" if r.get("error") else ""
+        lines.append(f"{r['project']:<24}{r['workers']:>8}{r['live']:>6}  {str(r['model']):<12}{suffix}")
     return "\n".join(lines) if rows else "(no projects under the agents root)"
 
 
@@ -280,14 +314,67 @@ def _fmt_status(rows: List[Dict]) -> str:
 # stop                                                                         #
 # --------------------------------------------------------------------------- #
 
+def _stop_child(wl: L.WorkerLayout) -> bool:
+    """Terminate an identifiable detached child; never signal a recycled PID."""
+    from danus import dsh
+    identity = checkpoints.worker_child_identity(wl.dir)
+    if identity is None:
+        return False
+    if not checkpoints.worker_child_active(identity):
+        (wl.dir / ".dsh-child.json").unlink(missing_ok=True)
+        return False
+    pid = identity["pid"]
+    # If the leader is gone, its old birth tick cannot identify remaining group
+    # members. Fail closed rather than risk signaling an unrelated reused PGID.
+    if (not identity.get("start_ticks") or not _alive(pid) or
+            not dsh.is_same_process(identity) or os.getpgid(pid) != pid):
+        raise SystemExit(f"cannot safely identify orphan child group for {wl.name}; inspect processes before removing .dsh-child.json")
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    for _ in range(50):
+        if not checkpoints.process_group_alive(pid):
+            break
+        time.sleep(0.1)
+    if checkpoints.process_group_alive(pid):
+        # An extant matching leader anchors the group's identity. If it exited,
+        # the already-observed group can retain descendants; do not guess a new
+        # identity and silently kill an unrelated group.
+        observed = dsh.process_identity(pid)
+        if observed["start_ticks"] is not None and observed["start_ticks"] != identity["start_ticks"]:
+            raise SystemExit(f"child PID reused while stopping {wl.name}; refusing signal")
+        try:
+            os.killpg(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        for _ in range(50):
+            if not checkpoints.process_group_alive(pid):
+                break
+            time.sleep(0.1)
+    if checkpoints.process_group_alive(pid):
+        raise SystemExit(f"child processes remain for {wl.name}; restore stays blocked")
+    (wl.dir / ".dsh-child.json").unlink(missing_ok=True)
+    return True
+
+
 def _stop_one(wl: L.WorkerLayout, force: bool) -> str:
+    if not force and not _alive(_read_pid(wl)) and checkpoints.worker_child_active(checkpoints.worker_child_identity(wl.dir)):
+        return "orphaned-child (use --force)"
+    result = _stop_loop(wl, force)
+    if force and _stop_child(wl):
+        return "killed"
+    return result
+
+
+def _stop_loop(wl: L.WorkerLayout, force: bool) -> str:
     pid = _read_pid(wl)
     if not force:
         if not _alive(pid):
             return "not-running"
         wl.stop.touch()      # graceful: loop exits at round boundary
         return "stopping (graceful)"
-    # force: kill the loop's process group (loop + its codex child), then SIGKILL
+    # force: kill the loop's process group (loop + its DSH child), then SIGKILL
     if not _alive(pid):
         wl.pid.unlink(missing_ok=True)
         return "not-running"
@@ -332,7 +419,7 @@ def _task_from_args(args) -> str:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="danus", description="Control codex workers.")
+    p = argparse.ArgumentParser(prog="danus", description="Control DSH workers.")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     li = sub.add_parser("list", help="list all projects + live worker counts")
@@ -369,6 +456,24 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("stop", help="stop worker loop(s)")
     sp.add_argument("target", help="<project> or <project>/<worker>")
     sp.add_argument("--force", action="store_true", help="kill now (else finish current round)")
+
+    snap = sub.add_parser("snapshot", help="best-effort project Git checkpoint (writers stay live)")
+    snap.add_argument("project")
+    snap.add_argument("--message", default=None)
+    snaps = sub.add_parser("snapshots", help="list immutable project checkpoints")
+    snaps.add_argument("project")
+    snaps.add_argument("--json", action="store_true")
+    restore = sub.add_parser("restore", help="restore durable state; stop affected workers and main writes first")
+    restore.add_argument("project")
+    restore.add_argument("snapshot")
+    restore.add_argument("--worker", default=None)
+    restore.add_argument("--dry-run", action="store_true")
+    restore.add_argument("--yes", action="store_true", help="confirm replacement AND that project-writing main activity is stopped")
+    restore.add_argument("--allow-inconsistent", action="store_true")
+    recover = sub.add_parser("recover-restore", help="roll back an interrupted restore from its immutable backup")
+    recover.add_argument("project")
+    recover.add_argument("--yes", action="store_true", required=True,
+                         help="confirm all affected workers and main writes are stopped")
     return p
 
 
@@ -411,4 +516,37 @@ def main(argv: Optional[List[str]] = None) -> int:
     elif args.cmd == "stop":
         for r in do_stop(args.target, force=args.force):
             print(f"{r['worker']}: {r['result']}")
+    elif args.cmd in {"snapshot", "snapshots", "restore", "recover-restore"}:
+        try:
+            project = L.project_dir(checkpoints.validate_name(args.project))
+            if args.cmd == "snapshot":
+                result = checkpoints.snapshot(project, args.message)
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+            elif args.cmd == "snapshots":
+                rows = checkpoints.list_snapshots(project)
+                if args.json:
+                    print(json.dumps(rows, ensure_ascii=False, indent=2))
+                else:
+                    for row in rows:
+                        print(f"{row['snapshot']}  {row['created_at']}  "
+                              f"{row['fact_count']} facts  {len(row['warnings'])} warnings")
+            elif args.cmd == "recover-restore":
+                print(json.dumps(checkpoints.recover_restore(project), indent=2))
+            else:
+                options = dict(worker=args.worker, allow_inconsistent=args.allow_inconsistent)
+                preview = checkpoints.restore(project, args.snapshot, dry_run=True, **options)
+                print(json.dumps(preview, ensure_ascii=False, indent=2))
+                if not args.dry_run:
+                    confirmed = args.yes
+                    if not confirmed:
+                        import sys
+                        if not sys.stdin.isatty():
+                            raise checkpoints.CheckpointError("restore needs --yes in noninteractive mode")
+                        confirmed = input("Confirm affected workers AND project-writing main activity are stopped; restore? [y/N] ").strip().lower() in {"y", "yes"}
+                    if not confirmed:
+                        raise checkpoints.CheckpointError("restore cancelled")
+                    result = checkpoints.restore(project, args.snapshot, yes=True, **options)
+                    print(json.dumps(result, ensure_ascii=False, indent=2))
+        except (checkpoints.CheckpointError, OSError, ValueError) as exc:
+            raise SystemExit(str(exc)) from exc
     return 0

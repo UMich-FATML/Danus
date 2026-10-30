@@ -2,7 +2,7 @@
 
 Filesystem verbs (new/assign/status/list) are deterministic. The loop tests are
 integration: they spawn the real ``python -m danus.execution`` loop subprocess but
-stub codex with a fake shell binary (``DANUS_CODEX_BIN``) so nothing real is
+stub dsh with a fake shell binary (``DANUS_DSH_BIN``) so nothing real is
 invoked and no API is spent. All processes are force-cleaned in ``finally``.
 
 Runs standalone (``python -m danus.orchestration.tests.test_orchestration``) and
@@ -20,6 +20,7 @@ from pathlib import Path
 
 from danus.execution import layout as L
 from danus.orchestration import cli
+from danus.tests.dsh_fixture import configured_dsh
 
 
 @contextmanager
@@ -43,7 +44,7 @@ def _env(**kw):
 @contextmanager
 def _project_env(tmp: Path, **extra):
     """Agents root + stub worker contract/skills so tests never touch the repo's
-    agents/ tree; merge any extra env (codex stub, round vars)."""
+    agents/ tree; merge any extra env (dsh stub, round vars)."""
     contract = tmp / "worker.md"
     contract.write_text("# worker contract (stub)\n", encoding="utf-8")
     skills = tmp / "skills"
@@ -52,15 +53,19 @@ def _project_env(tmp: Path, **extra):
            "DANUS_WORKER_CONTRACT": str(contract),
            "DANUS_WORKER_SKILLS": str(skills)}
     env.update(extra)
-    with _env(**env):
+    with configured_dsh(tmp / "offline-dsh"), _env(**env):
         yield
 
 
-def _fake_codex(d: Path) -> Path:
-    """A stub codex: print a round marker, sleep FAKE_CODEX_SLEEP, exit 0."""
-    p = d / "fake_codex.sh"
-    p.write_text('#!/usr/bin/env bash\necho "fake codex round"\n'
-                 'sleep "${FAKE_CODEX_SLEEP:-0}"\nexit 0\n')
+def _fake_dsh(d: Path) -> Path:
+    """A stub DSH: complete one JSONL turn after an optional test delay."""
+    p = d / "fake_dsh.sh"
+    p.write_text('#!/usr/bin/env bash\n'
+                 'echo \'{"type":"session","sessionId":"test-session"}\'\n'
+                 'sleep "${FAKE_DSH_SLEEP:-0}"\n'
+                 'echo \'{"type":"final","text":"fake DSH round"}\'\n'
+                 'echo \'{"type":"status","phase":"turn_end","reason":"completed"}\'\n'
+                 'exit 0\n')
     p.chmod(0o755)
     return p
 
@@ -131,12 +136,12 @@ def test_list(tmp: Path):
         assert rows["Q"]["workers"] == 1 and rows["Q"]["model"] == "gpt-x"
 
 
-# --- loop integration tests (stubbed codex) -------------------------------- #
+# --- loop integration tests (stubbed dsh) -------------------------------- #
 
 def test_loop_runs_rounds_then_exits(tmp: Path):
-    fc = _fake_codex(tmp)
-    with _project_env(tmp, DANUS_CODEX_BIN=str(fc), DANUS_ROUND_BEAT="0",
-                      DANUS_MAX_ROUNDS="2", FAKE_CODEX_SLEEP="0"):
+    fc = _fake_dsh(tmp)
+    with _project_env(tmp, DANUS_DSH_BIN=str(fc), DANUS_ROUND_BEAT="0",
+                      DANUS_MAX_ROUNDS="2", FAKE_DSH_SLEEP="0"):
         cli.do_new("P", roles="high:1")
         try:
             res = cli.do_start("P/high")
@@ -145,15 +150,16 @@ def test_loop_runs_rounds_then_exits(tmp: Path):
             s = _st("P", "high")
             assert s["state"] == "max_rounds" and s["round"] == 2
             wl = L.WorkerLayout(L.worker_dir("P", "high"))
-            assert (wl.logs / "round_1.log").exists() and (wl.logs / "round_2.log").exists()
+            assert len(list(wl.logs.glob("round_*_1.log"))) == 1
+            assert len(list(wl.logs.glob("round_*_2.log"))) == 1
         finally:
             _kill_project("P")
 
 
 def test_graceful_stop(tmp: Path):
-    fc = _fake_codex(tmp)
-    with _project_env(tmp, DANUS_CODEX_BIN=str(fc), DANUS_ROUND_BEAT="0.1",
-                      DANUS_MAX_ROUNDS="0", FAKE_CODEX_SLEEP="0.1"):
+    fc = _fake_dsh(tmp)
+    with _project_env(tmp, DANUS_DSH_BIN=str(fc), DANUS_ROUND_BEAT="0.1",
+                      DANUS_MAX_ROUNDS="0", FAKE_DSH_SLEEP="0.1"):
         cli.do_new("P", roles="high:1")
         try:
             cli.do_start("P/high")
@@ -168,9 +174,9 @@ def test_graceful_stop(tmp: Path):
 
 
 def test_force_stop(tmp: Path):
-    fc = _fake_codex(tmp)
-    with _project_env(tmp, DANUS_CODEX_BIN=str(fc), DANUS_ROUND_BEAT="0",
-                      DANUS_MAX_ROUNDS="0", FAKE_CODEX_SLEEP="30"):
+    fc = _fake_dsh(tmp)
+    with _project_env(tmp, DANUS_DSH_BIN=str(fc), DANUS_ROUND_BEAT="0",
+                      DANUS_MAX_ROUNDS="0", FAKE_DSH_SLEEP="30"):
         cli.do_new("P", roles="high:1")
         try:
             cli.do_start("P/high")
@@ -183,9 +189,9 @@ def test_force_stop(tmp: Path):
 
 
 def test_idempotent_start(tmp: Path):
-    fc = _fake_codex(tmp)
-    with _project_env(tmp, DANUS_CODEX_BIN=str(fc), DANUS_ROUND_BEAT="0",
-                      DANUS_MAX_ROUNDS="0", FAKE_CODEX_SLEEP="30"):
+    fc = _fake_dsh(tmp)
+    with _project_env(tmp, DANUS_DSH_BIN=str(fc), DANUS_ROUND_BEAT="0",
+                      DANUS_MAX_ROUNDS="0", FAKE_DSH_SLEEP="30"):
         cli.do_new("P", roles="high:1")
         try:
             assert cli.do_start("P/high")[0]["result"] == "started"
@@ -196,9 +202,9 @@ def test_idempotent_start(tmp: Path):
 
 
 def test_project_wide_targets(tmp: Path):
-    fc = _fake_codex(tmp)
-    with _project_env(tmp, DANUS_CODEX_BIN=str(fc), DANUS_ROUND_BEAT="0",
-                      DANUS_MAX_ROUNDS="1", FAKE_CODEX_SLEEP="0"):
+    fc = _fake_dsh(tmp)
+    with _project_env(tmp, DANUS_DSH_BIN=str(fc), DANUS_ROUND_BEAT="0",
+                      DANUS_MAX_ROUNDS="1", FAKE_DSH_SLEEP="0"):
         cli.do_new("P", roles="high:2")
         try:
             res = cli.do_start("P")              # whole project
@@ -209,14 +215,14 @@ def test_project_wide_targets(tmp: Path):
             _kill_project("P")
 
 
-def test_missing_codex_returns_error_state(tmp: Path):
-    with _project_env(tmp, DANUS_CODEX_BIN="/nonexistent/codex-bin",
+def test_missing_dsh_returns_error_state(tmp: Path):
+    with _project_env(tmp, DANUS_DSH_BIN="/nonexistent/dsh-bin",
                       DANUS_ROUND_BEAT="0", DANUS_MAX_ROUNDS="0"):
         cli.do_new("P", roles="high:1")
         try:
             cli.do_start("P/high")
             # rc 127 => loop must not spin; it errors out immediately
-            assert _wait_until(lambda: not _st("P", "high")["alive"]), "loop should exit on missing codex"
+            assert _wait_until(lambda: not _st("P", "high")["alive"]), "loop should exit on missing dsh"
             s = _st("P", "high")
             assert s["state"] == "error"
         finally:
@@ -229,7 +235,7 @@ def main() -> None:
     fs_tests = [test_assign_replace_and_rejects, test_status_before_start, test_list]
     loop_tests = [test_loop_runs_rounds_then_exits, test_graceful_stop, test_force_stop,
                   test_idempotent_start, test_project_wide_targets,
-                  test_missing_codex_returns_error_state]
+                  test_missing_dsh_returns_error_state]
     for t in fs_tests + loop_tests:
         with tempfile.TemporaryDirectory() as d:
             t(Path(d))

@@ -1,7 +1,7 @@
 """Offline, fully-mocked coverage of every ``danus`` CLI verb + helper.
 
 Unlike ``test_orchestration.py`` (which spawns the real loop subprocess with a
-stub codex), this module never launches *any* process: ``spawn_loop`` is
+stub dsh), this module never launches *any* process: ``spawn_loop`` is
 monkeypatched to a recording fake, so ``do_start`` / ``main start`` exercise the
 flock + pid bookkeeping without a fork. Everything runs under a tempdir agents
 root. Targets the read helpers, the error/edge paths of each verb, the two text
@@ -24,6 +24,7 @@ from pathlib import Path
 
 from danus.execution import layout as L
 from danus.orchestration import cli
+from danus.tests.dsh_fixture import configured_dsh
 
 
 # --------------------------------------------------------------------------- #
@@ -58,7 +59,7 @@ def _project_env(tmp: Path, **extra):
            "DANUS_WORKER_CONTRACT": str(contract),
            "DANUS_WORKER_SKILLS": str(skills)}
     env.update(extra)
-    with _env(**env):
+    with configured_dsh(tmp / "offline-dsh"), _env(**env):
         yield
 
 
@@ -126,7 +127,7 @@ def test_stop_one_force_sigkill_fallback(tmp: Path):
     """A child that ignores SIGTERM must be finished by the SIGKILL fallback
     (cli.py lines 245-248). We launch a real python child that traps SIGTERM into
     a no-op, signals readiness via a file, then sleeps; force-stop should SIGTERM
-    (ignored), wait ~5s, then SIGKILL. Real process we own — never codex.
+    (ignored), wait ~5s, then SIGKILL. Real process we own — never dsh.
 
     Waiting for the readiness file is essential: if we stop before the SIGTERM
     handler is installed, the default handler kills the child immediately and the
@@ -452,7 +453,7 @@ def test_stop_one_graceful_touches_stop(tmp: Path):
 def test_stop_one_force_kills_a_real_child(tmp: Path):
     """Spawn a genuine harmless child (sleep), record its pid, force-stop it, and
     assert it's reaped as 'killed'. This is a real process we own — safe to kill,
-    never a codex/worker (which the RULES forbid launching)."""
+    never a dsh/worker (which the RULES forbid launching)."""
     import subprocess
     with _project_env(tmp):
         cli.do_new("P", roles="high:1")
@@ -555,6 +556,9 @@ def test_do_list_bad_project_json(tmp: Path):
         (L.project_dir("P") / "project.json").write_text("{ broken", encoding="utf-8")
         rows = {r["project"]: r for r in cli.do_list()}
         assert rows["P"]["model"] == "—"               # unparseable meta => dash
+        assert rows["P"]["workers"] == 0
+        assert "invalid project worker roster" in rows["P"]["error"]
+        assert "ERROR:" in cli._fmt_list(list(rows.values()))
 
 
 def test_do_list_missing_project_json(tmp: Path):

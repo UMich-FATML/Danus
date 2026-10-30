@@ -22,15 +22,34 @@ danus/orchestration/
 | `start <p>[/<w>]` | → `execution.scaffold.spawn_loop` (idempotent via `.pid.lock`) |
 | `status <p>[/<w>] [--json]` | per-worker liveness + round + `stuck?` soft signal |
 | `stop <p>[/<w>] [--force]` | graceful `.stop` / `--force` `killpg` |
+| `snapshot <p> [--message TEXT]` | best-effort live project checkpoint; skips unchanged content |
+| `snapshots <p> [--json]` | list immutable `snap-N` checkpoints and integrity warnings |
+| `restore <p> <snap-N> [--worker NAME] [--dry-run] [--yes] [--allow-inconsistent]` | preview/restore stopped durable state, with immutable before-restore backup |
+| `recover-restore <p> --yes` | roll back an interrupted restore from its backup; leave workers stopped |
 
 ## Notes
 
 - Liveness is **zombie-aware** (`os.kill(pid,0)` + a `/proc/<pid>/stat` Z-state
   check), so `status`/`list` don't lie and `start` can restart a crashed worker.
 - No `assign`-all, no pause/resume — restart = `stop` then `start`.
-- Touches core only indirectly: `new` creates the empty `global_memory/`/`fact_graph/`
-  dirs (populated lazily by core on first write); it never writes the truth stores.
+- `new` creates empty shared-store directories. Restore replaces captured durable
+  files, but never verifies, repairs, or invents truth.
+- Restore requires affected workers and all project-writing main activity stopped.
+  `--yes` confirms that precondition; it does not stop processes for you. Worker-only
+  restore keeps shared stores/current other workers unchanged and warns about
+  possibly stale fact references. Malformed or dangling captured state needs an
+  explicit `--allow-inconsistent` override.
+- Checkpoint Git metadata lives outside the worktree at
+  `runtime/.gitstore/<project>.git`. Snapshots never acquire a writer barrier.
+  Restore uses a separate generation fence against stale verifier results and
+  blocks gateway mutations until an interrupted restore is recovered.
+- A dead worker loop does not imply its detached DSH child stopped. A durable
+  child lease blocks restore/restart while that child or its process group remains
+  active. `stop --force` cleans an identifiable child group; unresolved startup
+  leases or leaderless groups require operator inspection rather than unsafe
+  signaling of possibly reused process IDs.
 
 ## Tests
 
-`python -m pytest danus/orchestration/` (offline; fake codex + stub project).
+`pixi run python -m pytest danus/orchestration/ danus/checkpoint_tests/`
+(offline; fake DSH, stub projects, and real temporary Git repositories).

@@ -10,9 +10,10 @@ the agent's own file operations, deliberately NOT tools.
 The permission model (which tools each role sees) lives in ``roles.py``. The
 ``fact_submit`` tool is the ONLY fact-write path: it runs the glossary-coverage
 check, calls the verify service, writes the node IFF the verdict is ``correct``,
-and ALWAYS traces the verdict to global memory (kind ``verification``) — accept,
-reject, or accept-but-write-failed — so a verdict is never stored by nobody (the
-verify service is stateless).
+and traces the verdict to global memory (kind ``verification``) — accept,
+reject, or accept-but-write-failed — in the same project generation. A result
+whose project was restored while verification ran is rejected for retry without
+writing a fact, glossary, or trace into the new generation.
 
 Config is read from the environment at CALL time (not import time) so the server
 is testable and reconfigurable:
@@ -37,6 +38,7 @@ from typing import Any, Dict, List, Optional
 
 from danus._mcp import FastMCP
 from danus.core import FactGraph, GlobalMemory
+from danus.checkpoints import (mutation_lock, project_generation, generation_matches)
 from danus.integrations import search as _arxiv_search
 
 from .roles import tools_for
@@ -128,10 +130,11 @@ def gm_add(
 
     Main agent: pass ``project`` to target one of several projects by name;
     workers omit it (pinned to their own project)."""
-    entry_id = _gm(project).append(
-        kind, claim=claim, evidence=evidence, author=_author(),
-        verifiable=verifiable, glossary=glossary, links=links,
-    )
+    with mutation_lock(_project(project)):
+        entry_id = _gm(project).append(
+            kind, claim=claim, evidence=evidence, author=_author(),
+            verifiable=verifiable, glossary=glossary, links=links,
+        )
     return {"id": entry_id, "kind": kind}
 
 
@@ -160,10 +163,10 @@ def fact_submit(
     verifier, and writes the node IFF accepted. On reject, returns repair hints
     and writes nothing. Cite the returned ``fact_id`` in downstream proofs.
 
-    Once a verdict exists, the verification outcome is **always** recorded to
-    global memory (kind ``verification``) — accept, reject, or accept-but-write-
-    failed — so a verdict is never stored by nobody (the verifier is stateless;
-    this worker tool persists it). ``source_id`` optionally links to the
+    Once a verdict exists in the current project generation, its outcome is
+    recorded to global memory (kind ``verification``) — accept, reject, or
+    accept-but-write-failed. Restore during verification invalidates the result;
+    retry it rather than writing stale state into the restored generation. ``source_id`` optionally links to the
     global-memory finding being promoted.
 
     When your proof cites an external (published) result, pass it in
@@ -173,9 +176,13 @@ def fact_submit(
     with ``search_arxiv_theorems``). This is captured on the fact so the paper
     pipeline can cite it without re-deriving; it is mutable metadata and does not
     affect the ``fact_id``."""
+    project_dir = _project()
+    # Capture before network verification; a completed restore invalidates this
+    # result even if it arrived after all affected worker processes stopped.
+    generation = project_generation(project_dir)
     fg = _fg()
     gm = _gm()
-    problem_id = os.environ.get("DANUS_PROBLEM_ID", Path(_project()).name)
+    problem_id = os.environ.get("DANUS_PROBLEM_ID", project_dir.name)
 
     # glossary coverage is advisory — never let a heuristic bug block submission
     try:
@@ -203,33 +210,39 @@ def fact_submit(
     verdict = result.get("verdict")
     accepted = verdict == "correct"
 
-    # 2) Write the fact iff accepted. Catch write failures (e.g. a revoked
-    #    predecessor) so they do NOT skip the trace below.
-    fact_id = None
-    write_error = None
-    if accepted:
-        try:
-            fact_id = fg.add(
-                problem_id=problem_id, author=_author(), statement=statement, proof=proof,
-                predecessors=predecessors, glossary_introduces=glossary_introduces,
-                intuition=intuition, external_refs=external_refs,
-            )
-        except Exception as e:
-            write_error = str(e)
+    # 2) Only the short file commit holds the restore fence: fact, glossary,
+    # and verification trace belong to the same generation. A stale verdict is
+    # returned for retry, never inserted into the restored project's history.
+    with mutation_lock(project_dir) as state:
+        if not generation_matches(state, generation):
+            return {"accepted": False, "verdict": "error",
+                    "error": "project restored during verification; retry submission",
+                    "undefined_symbols": undefined}
+        fact_id = None
+        write_error = None
+        if accepted:
+            try:
+                fact_id = fg.add(
+                    problem_id=problem_id, author=_author(), statement=statement, proof=proof,
+                    predecessors=predecessors, glossary_introduces=glossary_introduces,
+                    intuition=intuition, external_refs=external_refs,
+                )
+            except Exception as e:
+                write_error = str(e)
 
-    # 3) ALWAYS record the verification outcome to global memory once a verdict exists.
-    gm.append(
-        "verification",
-        claim=statement,
-        evidence="verdict: correct" if accepted else (result.get("repair_hints") or "verdict: wrong"),
-        author=_author(),
-        verifiable=False,
-        links={"source_id": source_id, "predecessors": predecessors or []},
-        verdict=verdict,
-        fact_id=fact_id,
-        write_error=write_error,
-        verification_report=result.get("verification_report"),
-    )
+        # 3) Trace all verdicts in this generation, including write failures.
+        gm.append(
+            "verification",
+            claim=statement,
+            evidence="verdict: correct" if accepted else (result.get("repair_hints") or "verdict: wrong"),
+            author=_author(),
+            verifiable=False,
+            links={"source_id": source_id, "predecessors": predecessors or []},
+            verdict=verdict,
+            fact_id=fact_id,
+            write_error=write_error,
+            verification_report=result.get("verification_report"),
+        )
 
     # 4) Return.
     if not accepted:
@@ -261,7 +274,8 @@ def fact_revoke(fact_id: str, reason: str, project: Optional[str] = None) -> Dic
     """Cascade-revoke a wrong fact and everything that depends on it. Destructive;
     operator / main-agent only. Main agent: pass ``project`` to target the project
     that owns the fact."""
-    revoked = _fg(project).revoke(fact_id, reason=reason)
+    with mutation_lock(_project(project)):
+        revoked = _fg(project).revoke(fact_id, reason=reason)
     return {"revoked": revoked}
 
 

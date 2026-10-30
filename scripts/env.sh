@@ -4,62 +4,65 @@
 #
 #   source <repo>/scripts/env.sh
 #
-# Resolves all paths from config/codex.env + config/danus.env + runtime/
-# runtime.env, then exports sane defaults and puts bin/ + the provisioned node +
-# venv on PATH. The bin/ wrappers source this for you, so `danus` and `codex`
-# work without you sourcing it manually. Sourcing twice is harmless
-# (idempotent).
+# Sources explicit local config, then uses the pixi environment and isolated
+# Danus-owned DSH homes. Never borrows the operator's running GUI configuration.
 # =============================================================================
+
+# Managed launchers explicitly own fresh homes; preserve them through config reload.
+_danus_isolated_home=""; _danus_isolated_agents=""
+if [ "${DANUS_DSH_ISOLATED:-0}" = 1 ]; then
+  _danus_isolated_home="${DSH_HOME:?isolated launcher requires DSH_HOME}"
+  _danus_isolated_agents="${DSH_AGENTS_HOME:?isolated launcher requires DSH_AGENTS_HOME}"
+  case "$_danus_isolated_home:$_danus_isolated_agents" in /*:/*) ;; *) echo 'isolated DSH homes must be absolute' >&2; return 2 2>/dev/null || exit 2;; esac
+fi
 
 # Self-locate the repo root (this file lives at <repo>/scripts/env.sh).
 DANUS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 export DANUS_ROOT
 
-# 0) codex backend (BYO OpenAI-compatible endpoint + key; gitignored)
-if [ -f "$DANUS_ROOT/config/codex.env" ]; then
-  set -a; . "$DANUS_ROOT/config/codex.env"; set +a
+# 0) explicit DSH API environment; secrets stay in gitignored config/*.env.
+if [ "${DANUS_DSH_ISOLATED:-0}" != 1 ] && [ -f "$DANUS_ROOT/config/dsh.env" ]; then
+  set -a; . "$DANUS_ROOT/config/dsh.env"; set +a
 fi
 
-# 1) user config (accounts / models / ports / toggles) — overrides the codex file
-if [ -f "$DANUS_ROOT/config/danus.env" ]; then
+# 1) user config (accounts / models / ports / toggles)
+if [ "${DANUS_DSH_ISOLATED:-0}" != 1 ] && [ -f "$DANUS_ROOT/config/danus.env" ]; then
   set -a; . "$DANUS_ROOT/config/danus.env"; set +a
 fi
 
-# 2) machine-derived paths written by bootstrap.sh (node, codex.js, venv)
-if [ -f "$DANUS_ROOT/runtime/runtime.env" ]; then
-  set -a; . "$DANUS_ROOT/runtime/runtime.env"; set +a
-fi
+# Legacy runtime/runtime.env is intentionally no longer sourced: it may carry
+# stale interpreter or removed-runtime paths. Pixi and explicit config own paths.
+# Isolated children skip ALL config reloads and inherit the launcher's resolved env.
 
 # 3) defaults for anything still unset
 export DANUS_RUNTIME="${DANUS_RUNTIME:-$DANUS_ROOT/runtime}"
 export DANUS_AGENTS_ROOT="${DANUS_AGENTS_ROOT:-$DANUS_RUNTIME/projects}"
 export VERIFIER_RESULTS_DIR="${VERIFIER_RESULTS_DIR:-$DANUS_RUNTIME/verify-runs}"
-export CODEX_HOME="${CODEX_HOME:-$DANUS_RUNTIME/codex-home}"
+# Deliberately ignore inherited DSH_HOME/DSH_AGENTS_HOME from the current GUI.
+export DSH_HOME="${DANUS_DSH_HOME:-$DANUS_RUNTIME/dsh-home}"
+export DSH_AGENTS_HOME="${DANUS_DSH_AGENTS_HOME:-$DANUS_RUNTIME/dsh-agents}"
+if [ -n "$_danus_isolated_home" ]; then
+  export DSH_HOME="$_danus_isolated_home" DSH_AGENTS_HOME="$_danus_isolated_agents"
+  export DANUS_DSH_HOME="$DSH_HOME" DANUS_DSH_AGENTS_HOME="$DSH_AGENTS_HOME" DANUS_DSH_ISOLATED=1
+fi
+export DANUS_DSH_PROVIDER_PATCH="${DANUS_DSH_PROVIDER_PATCH:-$DANUS_RUNTIME/dsh-provider.json}"
 export VERIFY_PORT="${VERIFY_PORT:-8091}"
 export DASHBOARD_PORT="${DASHBOARD_PORT:-8099}"
 export DANUS_VERIFY_URL="${DANUS_VERIFY_URL:-http://127.0.0.1:${VERIFY_PORT}/verify}"
-export DANUS_MAIN_MODEL="${DANUS_MAIN_MODEL:-${DANUS_CODEX_MODEL:-${CODEX_API_MODEL:-gpt-5.6-sol}}}"   # neutral default model for every danus-spawned codex call (honors a set DANUS_CODEX_MODEL alias or the api backend model)
-export DANUS_MAIN_EFFORT="${DANUS_MAIN_EFFORT:-${DANUS_CODEX_EFFORT:-xhigh}}"   # neutral default reasoning effort (honors the DANUS_CODEX_EFFORT alias)
-export DANUS_WORKER_MODEL="${DANUS_WORKER_MODEL:-$DANUS_MAIN_MODEL}"   # worker-only model (defaults to the neutral model above)
-# back-compat: keep the old names populated for any shell consumer that still
-# expands them (Python resolves via the aliases in danus.codex regardless).
-export DANUS_CODEX_MODEL="$DANUS_MAIN_MODEL"
-export DANUS_CODEX_EFFORT="$DANUS_MAIN_EFFORT"
-export DANUS_CHROME_BIN="${DANUS_CHROME_BIN:-}"        # headless Chrome/Chromium for human-summary PDF (empty = auto-detect)
-export CODEX_BACKEND="${CODEX_BACKEND:-api}"            # api (BYO key) | chatgpt (your login)
+# Model/provider routing is explicit. No guessed model or partial route fallback.
+export DANUS_MAIN_MODEL="${DANUS_MAIN_MODEL:-}"
+export DANUS_MAIN_EFFORT="${DANUS_MAIN_EFFORT:-}"
+export DANUS_WORKER_MODEL="${DANUS_WORKER_MODEL:-$DANUS_MAIN_MODEL}"
+export DANUS_CHROME_BIN="${DANUS_CHROME_BIN:-}"
 
-# 4) PATH: bin wrappers first, then the provisioned node + venv (if bootstrapped)
+# 4) PATH: repo wrappers then the pixi-managed toolchain, never a global install.
 _danus_path="$DANUS_ROOT/bin"
-[ -n "${DANUS_NODE_BIN:-}" ] && [ -d "$DANUS_NODE_BIN" ] && _danus_path="$_danus_path:$DANUS_NODE_BIN"
-[ -n "${DANUS_VENV:-}" ]     && [ -d "$DANUS_VENV/bin" ] && _danus_path="$_danus_path:$DANUS_VENV/bin"
+[ -d "$DANUS_ROOT/.pixi/envs/default/bin" ] && _danus_path="$_danus_path:$DANUS_ROOT/.pixi/envs/default/bin"
 case ":$PATH:" in *":$_danus_path:"*) : ;; *) export PATH="$_danus_path:$PATH" ;; esac
 
-# 5) the python the engine runs on (venv if bootstrapped, else system python3)
-if [ -n "${DANUS_VENV:-}" ] && [ -x "$DANUS_VENV/bin/python" ]; then
-  export DANUS_PY="$DANUS_VENV/bin/python"
-else
-  export DANUS_PY="${DANUS_PY:-$(command -v python3 || true)}"
-fi
+# 5) Prefer an explicitly configured interpreter, then the project's pixi env.
+export DANUS_PY="${DANUS_PY:-$DANUS_ROOT/.pixi/envs/default/bin/python}"
+export DANUS_NODE="${DANUS_NODE:-$(command -v node || true)}"
 
 # silent unless DANUS_ENV_VERBOSE=1
 if [ "${DANUS_ENV_VERBOSE:-0}" = "1" ]; then
@@ -67,7 +70,8 @@ if [ "${DANUS_ENV_VERBOSE:-0}" = "1" ]; then
   echo "DANUS_PY=$DANUS_PY"
   echo "DANUS_AGENTS_ROOT=$DANUS_AGENTS_ROOT"
   echo "DANUS_VERIFY_URL=$DANUS_VERIFY_URL"
-  echo "CODEX_HOME=$CODEX_HOME"
+  echo "DSH_HOME=$DSH_HOME"
+  echo "DSH_AGENTS_HOME=$DSH_AGENTS_HOME"
 fi
 
 # 6) verify-service identity probe (shared by doctor.sh / services.sh).

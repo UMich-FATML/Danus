@@ -4,14 +4,14 @@ Wraps the isolated report writer behind a hard-coded MCP tool so the main agent
 gets a clean ``report.md`` **without ever authoring the prose itself and without
 ever reading the fact files**. The large bytes (the writer prompt + the scrubbed
 fact bundle) are assembled inside the tool (``assemble.py``) and never pass
-through the main agent's context, and the writer's codex runs isolated by
+through the main agent's context, and the writer's dsh runs isolated by
 construction (``danus.authoring.driver`` — empty cwd + fully-embedded prompt).
 
-The structural fix this service is: the report author is an ISOLATED codex fed a
+The structural fix this service is: the report author is an ISOLATED dsh fed a
 scrubbed, id-free bundle — it is impossible for it to receive ``fact_id`` /
 ``author`` / ``predecessors`` / other frontmatter or swarm/orchestration
 vocabulary, because ``assemble.py`` strips all of it. A regex LEAK CHECK on the
-codex output is the backstop: a report that still contains a hex id, an ``author:``
+dsh output is the backstop: a report that still contains a hex id, an ``author:``
 line, a ``fact_`` slug, or machinery terms is reported ``status != ok`` and is NOT
 kept.
 
@@ -22,9 +22,9 @@ findings; a nonzero exit, empty stdout, timeout, or any leak is not ``ok``.
 Config resolution (env read at CALL time):
   DANUS_AGENTS_ROOT / DANUS_PROJECT_DIR         which project to operate on
   DANUS_HUMAN_SUMMARY_SKILL_DIR                 the writer prompt (see assemble.py)
-  DANUS_CODEX_BIN                               codex binary
-  DANUS_HUMAN_SUMMARY_MODEL / DANUS_HUMAN_SUMMARY_EFFORT   per-service codex
-                      overrides; fall back to neutral DANUS_CODEX_MODEL / DANUS_CODEX_EFFORT
+  DANUS_DSH_BIN                               dsh binary
+  DANUS_HUMAN_SUMMARY_MODEL / DANUS_HUMAN_SUMMARY_EFFORT   per-service dsh
+                      overrides; fall back to neutral DANUS_MAIN_MODEL / DANUS_MAIN_EFFORT
 """
 
 from __future__ import annotations
@@ -63,24 +63,24 @@ _LEAK_PATTERNS = [
 
 def _model() -> str:
     """Per-service model override, else the neutral default:
-    DANUS_HUMAN_SUMMARY_MODEL -> DANUS_CODEX_MODEL -> the driver's built-in default."""
+    DANUS_HUMAN_SUMMARY_MODEL -> DANUS_MAIN_MODEL -> the driver's built-in default."""
     return os.environ.get("DANUS_HUMAN_SUMMARY_MODEL") or driver.default_model()
 
 
 def _effort() -> str:
     """Per-service effort override, else the neutral default:
-    DANUS_HUMAN_SUMMARY_EFFORT -> DANUS_CODEX_EFFORT -> the driver's built-in default."""
+    DANUS_HUMAN_SUMMARY_EFFORT -> DANUS_MAIN_EFFORT -> the driver's built-in default."""
     return os.environ.get("DANUS_HUMAN_SUMMARY_EFFORT") or driver.default_effort()
 
 
 def _drive(prompt: str) -> Dict[str, Any]:
-    """Run the codex driver once and classify the outcome honestly (see
+    """Run the dsh driver once and classify the outcome honestly (see
     ``authoring.common.classify_outcome``: ``ok`` needs a zero exit AND non-empty
     stdout; a nonzero exit, timeout, missing binary, or empty output is not
     ``ok``)."""
     try:
-        cp: Any = driver.run_codex(prompt, model=_model(), effort=_effort())
-    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        cp: Any = driver.run_dsh(prompt, model=_model(), effort=_effort())
+    except (subprocess.TimeoutExpired, OSError, ValueError) as e:
         cp = e
     return classify_outcome(cp, artifact_noun="report")
 
@@ -117,7 +117,7 @@ def summary_write(project: Optional[str] = None, language: Optional[str] = None)
     ``<project>/report/report.md``. Assembles the report writer's prompt (the
     verbatim problem statement + a SCRUBBED, id-free bundle of the project's
     verified results — no fact ids, no author names, no machinery — all embedded,
-    nothing enters your context), drives an ISOLATED local codex, writes its
+    nothing enters your context), drives an ISOLATED local dsh, writes its
     stdout, then runs a LEAK CHECK on the output.
 
     ``language`` sets the report's narrative language (math terminology stays
@@ -131,7 +131,7 @@ def summary_write(project: Optional[str] = None, language: Optional[str] = None)
     Returns ``{report_md_path, language, status, returncode, leak_findings,
     stderr_tail}``. **Honesty:** ``status="ok"`` only on a zero exit AND non-empty
     output AND zero ``leak_findings``. On any non-``ok`` status — including a leak —
-    the report is NOT kept as a clean artifact: on codex failure nothing is
+    the report is NOT kept as a clean artifact: on dsh failure nothing is
     written; on a leak the output is written to ``report.leaky.md`` (for
     inspection) and ``report.md`` is not produced."""
     pdir = resolve_project(project)

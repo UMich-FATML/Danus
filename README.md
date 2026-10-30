@@ -8,14 +8,14 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-4c1" alt="Apache 2.0 license"></a>
 </p>
 
-> 🚀✨ **News:** This branch is the version that solved [YTD](https://arxiv.org/abs/2608.19301). 🎉
+> 🚀✨ **Upstream history:** The upstream Codex/v3 branch reported solving [YTD](https://arxiv.org/abs/2608.19301). This branch migrates that runtime to DSH; it does not claim a new DSH reproduction of that result.
 
 Danus orchestrates mathematical reasoning agents with fact-graph memory. A main
-agent (codex) steers a swarm of autonomous codex workers that prove; a
+agent (DSH) steers a swarm of autonomous DSH workers that prove; a
 cold-start verifier is the sole authority on correctness: a result becomes real
 only once it passes. Verified results accumulate in a content-addressed fact
 graph — the system's only source of truth — and the main agent decomposes the
-problem and steers the swarm, reasoning itself (optionally via exploratory codex
+problem and steers the swarm, reasoning itself (optionally via exploratory DSH
 subagents). When you have the answer, Danus renders it into a human report or a
 publishable LaTeX paper.
 
@@ -29,20 +29,18 @@ along the way.
 
 See `ARCHITECTURE.md` for the layered design and the map of every module.
 
-## Orchestrator options
+## Runtime
 
-The workers and the verifier always run on **codex**. On **this branch the main
-agent (the orchestrator) also runs on codex**, so you install **nothing beyond
-codex** — no Claude Code. It reasons directly between rounds (optionally spawning
-exploratory codex subagents) and authors its own `master_guidance`; there is no
-external strategy-consult step. Runtime: `AGENTS.md` + `.codex/config.toml` +
-`.agents/skills/`.
+All runtime roles on this branch use **DeepSeek Harness (DSH)** with explicit
+provider/model/effort configuration and isolated role homes. The main agent
+reasons continuously, maintains rolling speculative DSH subagents, and authors
+its own `master_guidance`; durable workers submit proofs through the verifier.
+There is no external strategy-consult step or legacy-runtime fallback.
+Runtime entry points: [AGENTS.md](AGENTS.md), `.dsh/`, `.agents/skills/`, and the
+repository wrappers. See [DSH migration](docs/dsh-migration.md).
 
-A separate [`main` branch](https://github.com/frenzymath/Danus/tree/main) runs the
-orchestrator on **Claude Code** instead (Fable as the orchestrator model, an
-external strategy consult, and a `CLAUDE.md` + `.mcp.json` + `.claude/skills/`
-runtime). It shares the same worker–verifier proof core. Use `main` if you
-specifically want the Claude Code orchestrator.
+For **coding**, start with [CONTRIBUTING.md](CONTRIBUTING.md); do not initialize a
+live deployment merely to edit or test the repository.
 
 ## How it works
 
@@ -96,10 +94,10 @@ danus/                 the engine (installable Python package)
   orchestration/       the `danus` CLI verbs (list/new/assign/start/status/stop)
   integrations/        arXiv theorem search
   observability/       read-only dashboard
-  authoring/           shared one-shot isolated-codex driver for the two renderers below
+  authoring/           shared one-shot isolated-DSH driver for the two renderers below
   write_paper/         write-paper MCP service (fact graph → publishable LaTeX paper)
   human_summary/       human-summary MCP service (fact graph → progress-report PDF)
-agents/                codex agent contracts (main/worker/verifier) + worker & verify skills
+agents/                DSH agent contracts (main/worker/verifier) + worker & verify skills
 .agents/skills/         main-agent skills: elaboration · human-summary · initialize · write-paper
 bin/ scripts/ config/  runtime layer (wrappers, bootstrap/services/doctor, env templates)
 docs/                  human docs: getting started · concepts · operating guide · security & trust · …
@@ -108,29 +106,36 @@ examples/              unattended-ops examples + a toy project
 
 ## Quickstart
 
+For an authorized operating deployment (not coding):
+
 ```bash
-# 1. provision the toolchain (Node + venv + codex CLI) into runtime/
+# 1. provision the Pixi-managed toolchain
+pixi install
 bash scripts/bootstrap.sh
 
-# 2. configure — copy the templates and fill in YOUR keys (never committed)
+# 2. copy templates, then fill explicit DSH provider/model/effort and credentials
 cp config/danus.env.example config/danus.env
-cp config/codex.env.example config/codex.env      # BYO OpenAI-compatible endpoint + key
+cp config/dsh.env.example config/dsh.env
+# Edit the gitignored files before continuing; do not guess a provider route.
+bash scripts/setup-dsh.sh
 
-# 3. health check + bring up the verify service (REQUIRED for any proving)
+# 3. nonbillable diagnostics; these do not prove live inference reachability
+bash scripts/check-dsh.sh
 bash scripts/doctor.sh
-bash scripts/services.sh up verify
 
-# 4. connect codex rooted at this repo dir; on first run it runs `initialize`.
-#    --dangerously-bypass-approvals-and-sandbox lets the main agent operate
-#    autonomously (no per-action approval prompts). That is the intended mode, but
-#    it means the agent acts with your shell privileges — run Danus on an isolated,
-#    disposable host, and read docs/security-and-trust.md first.
-codex --dangerously-bypass-approvals-and-sandbox
+# 4. only when authorized to operate, start the required verification service
+bash scripts/services.sh up verify
+# Launch the main agent with the repository's configured main wrapper:
+bin/danus-main  # isolated loopback Web main; open its printed URL
 ```
 
-Everything runs on your own keys (BYO). Workers and the verifier run on your codex
+Read [getting started](docs/getting-started.md) and
+[security and trust](docs/security-and-trust.md) before deployment. No model or
+effort label is assumed compatible with every provider.
+
+Everything runs on your own keys (BYO). Workers and the verifier run on your DSH
 backend. The main agent steers by reasoning itself between rounds — optionally
-spawning exploratory codex subagents — and publishes its own periodic direction
+spawning exploratory DSH subagents — and publishes its own periodic direction
 to the swarm as `master_guidance`.
 
 **Notes**
@@ -146,6 +151,20 @@ to the swarm as `master_guidance`.
   verified facts. In our experience the single highest-leverage fix is to provide
   a few papers of your own as exemplars when you ask for the write-up — the writer
   imitates them, and readability improves substantially.
+
+## Recovery and continuity
+
+[Project snapshots](docs/git-resume.md) capture shared stores and workers in one
+best-effort history, after full worker rounds or completed root main turns—not
+per tool step. Restore requires stopped affected workers and quiescent main
+writers, makes a backup, fences old verifier results and uses fresh sessions.
+Raw DSH session logs are audit-only, not replayed. `DANUS_SNAPSHOT_AUTO=0` disables
+automatic capture.
+
+DSH persistent goals and reminder schedules are separate. The main launcher's
+isolated Web mode provides native schedules while running; its explicit
+`--headless` one-shot alternative has no schedule service. See
+[operations](docs/operations.md) for host lifetime and human-authorized resume.
 
 ## Design invariants (see ARCHITECTURE.md §3)
 

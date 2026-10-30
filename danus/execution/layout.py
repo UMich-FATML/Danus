@@ -5,18 +5,18 @@ This is the single source of truth for *where everything lives* — shared by
 verbs). Every path/name is derived here so the two halves can never drift.
 
 Layout (a project root holds the *shared* stores; each worker has its own home,
-which is also the codex working dir / LocalMemory root)::
+which is also the dsh working dir / LocalMemory root)::
 
     <agents_root>/<project>/           # = DANUS_PROJECT_DIR (shared)
       global_memory/  fact_graph/      # created lazily by core on first write
       project.json                     # roster + metadata
       .run_deadline                    # optional epoch ceiling
-      workers/<worker>/                # worker home (codex cwd, LocalMemory root)
-        AGENTS.md -> agents/contracts/worker.md   # the static contract codex reads
+      workers/<worker>/                # worker home (dsh cwd, LocalMemory root)
+        WORKER.md -> agents/contracts/worker.md   # the static contract dsh reads
         .agents/skills -> agents/skills/worker    # the worker skills
-        .codex/config.toml                        # MCP = danus gateway, role=worker
+        .dsh/gateway.patch.json                        # MCP = danus gateway, role=worker
         TASK.md                                   # per-round assignment (danus assign)
-        local_memory/                             # worker-private (codex writes)
+        local_memory/                             # worker-private (dsh writes)
         .role .pid .pid.lock .stop .status.json  logs/
 
 Key defaults:
@@ -34,6 +34,7 @@ Everything reads env at CALL time (not import time) to match core/gateway/verify
 from __future__ import annotations
 
 import os
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -76,7 +77,7 @@ def agents_root() -> Path:
 
 
 def worker_md() -> Path:
-    """The worker contract codex auto-reads (symlinked to AGENTS.md). Pinned path
+    """The worker contract dsh auto-reads (symlinked to WORKER.md). Pinned path
     ``agents/contracts/worker.md``; override with ``DANUS_WORKER_CONTRACT``."""
     env = os.environ.get("DANUS_WORKER_CONTRACT")
     if env:
@@ -113,7 +114,21 @@ def list_workers(project: str) -> List[str]:
     wd = workers_dir(project)
     if not wd.is_dir():
         return []
-    return sorted(p.name for p in wd.iterdir() if p.is_dir())
+    metadata = project_dir(project) / "project.json"
+    if metadata.exists():
+        # Restoring a smaller roster can leave excluded historical log dirs.
+        # Never resurrect those as workers, and fail closed on corrupt metadata.
+        try:
+            roster = json.loads(metadata.read_text(encoding="utf-8"))["workers"]
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            raise ValueError(f"invalid project worker roster: {metadata}") from exc
+        if not isinstance(roster, list) or any(
+            not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", name)
+            for name in roster
+        ):
+            raise ValueError(f"invalid project worker roster: {metadata}")
+        return sorted({name for name in roster if (wd / name).is_dir() and not (wd / name).is_symlink()})
+    return sorted(p.name for p in wd.iterdir() if p.is_dir() and not p.is_symlink())
 
 
 def list_projects() -> List[str]:
@@ -130,7 +145,7 @@ def list_projects() -> List[str]:
 
 @dataclass(frozen=True)
 class WorkerLayout:
-    """Typed view of one worker home. ``dir`` is the codex cwd / LocalMemory root;
+    """Typed view of one worker home. ``dir`` is the dsh cwd / LocalMemory root;
     every control file is a property so callers never re-spell the names."""
 
     dir: Path
@@ -181,8 +196,8 @@ class WorkerLayout:
         return self.dir / "local_memory"
 
     @property
-    def codex_config(self) -> Path:
-        return self.dir / ".codex" / "config.toml"
+    def dsh_config(self) -> Path:
+        return self.dir / ".dsh" / "gateway.patch.json"
 
 
 # --------------------------------------------------------------------------- #
@@ -202,6 +217,8 @@ def target_worker_dirs(target: str) -> List[Path]:
     """Worker dirs addressed by ``target`` — one (proj/worker) or all (proj)."""
     project, worker = resolve_target(target)
     if worker:
+        if (project_dir(project) / "project.json").exists() and worker not in list_workers(project):
+            raise ValueError(f"worker {worker!r} is not in the current roster for {project!r}")
         return [worker_dir(project, worker)]
     return [worker_dir(project, w) for w in list_workers(project)]
 
@@ -216,7 +233,7 @@ _ROLE_RE = re.compile(r"^([A-Za-z][A-Za-z0-9_]*?):(\d+)$")
 def parse_roles(spec: str) -> List[Tuple[str, str]]:
     """``"high:3,xhigh:4"`` -> ``[("high","high"), ("high2","high"),
     ("high3","high"), ("xhigh","xhigh"), …]``. Returns (worker_name, base_role)
-    pairs; the base role (digits stripped) drives the codex reasoning effort. The
+    pairs; the base role (digits stripped) drives the dsh reasoning effort. The
     first worker of a base keeps the bare name; the rest get numeric suffixes.
     Raises ``ValueError`` on a malformed/empty spec or a count < 1."""
     out: List[Tuple[str, str]] = []

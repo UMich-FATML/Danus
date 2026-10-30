@@ -1,135 +1,84 @@
 # Danus — Getting Started
 
-Provision a self-contained Danus deployment and bring it to a healthy, ready-to-run
-state. Read `concepts.md` first for the mental model; after this, see
-`operating-guide.md` to run your first project.
+This is deployment setup, not a prerequisite for repository coding. For coding,
+read [CONTRIBUTING.md](../CONTRIBUTING.md) and leave the operator template blank.
+Do not initialize live services or make model calls as part of implementation.
+For the mental model see [concepts](concepts.md); existing deployments should read
+[DSH migration](dsh-migration.md).
 
-## Prerequisites (on the host)
+## Prerequisites
 
-- **Linux** host you are willing to let autonomous agents operate on (a dedicated
-  VM / container / pod — see `security-and-trust.md`).
-- `git`, `python3` (3.10+), `curl`, `tar`, `bash`. `bootstrap.sh` provisions
-  everything else (Node, a venv, the codex CLI) into `runtime/` — no system-wide
-  installs.
-- A **codex backend**: either an OpenAI-compatible API key, or a ChatGPT Pro/Plus
-  subscription. This is what workers and the verifier run on (bring your own).
-- *(Only for `write-paper`)* a LaTeX engine on `PATH` (`pdflatex`, or `tectonic` via
-  `scripts/install-tex.sh`). Not needed for proving.
+- A Linux host appropriate for autonomous agents: preferably a dedicated
+  VM/container, not a workstation containing unrelated data. Read
+  [security and trust](security-and-trust.md).
+- Git, Bash, and Pixi. Python dependencies and Node are managed by the repository's
+  Pixi manifest, not an ad-hoc venv or system package install.
+- An operator-approved DSH binary and an explicitly selected provider route with
+  supported model/effort and credentials. Do not infer support from an upstream
+  model name or silently fall back to another runtime.
+- Optional rendering dependencies: a LaTeX engine for papers and Chrome/Chromium
+  for report PDFs. They are not needed for proving.
 
-## 1. Provision the runtime
+## 1. Provision the software environment
 
 ```bash
+pixi install
 bash scripts/bootstrap.sh
 ```
 
-Idempotent. Installs into gitignored `runtime/`:
-- Node 22 → `runtime/node22` (default `NODE_VERSION` `v22.14.0`),
-- a Python venv → `runtime/venv` (`mcp`, `fastapi`, `uvicorn`, `pydantic`, `openai`,
-  plus the `danus` package itself as an editable install — the worker MCP gateway
-  and the `bin/` wrappers run `python -m danus.*` from arbitrary cwds, so the
-  package must be on the venv's path; the script validates the venv actually
-  imports everything and rebuilds if the base interpreter went dangling),
-- the codex CLI → `runtime/codex-npm` (`npm @openai/codex`),
-- human-summary node deps (`markdown-it`/`katex`, soft — only for PDF rendering),
-- `runtime/runtime.env` (machine paths that `scripts/env.sh` reads).
+Bootstrap uses the Pixi environment and prepares local runtime paths. It does not
+log into an old backend, run paid inference, or configure a different running GUI.
+Keep the installed DSH binary explicit with `DANUS_DSH_BIN`.
 
-If `config/codex.env` already holds a real (non-placeholder) API key, bootstrap
-also writes the codex `model_provider` for you.
-
-## 2. Configure (copy the templates; fill YOUR values)
-
-Secrets live **only** in these gitignored files (never committed):
+## 2. Configure the deployment
 
 ```bash
-cp config/danus.env.example config/danus.env    # host/account config (edit as needed)
-cp config/codex.env.example config/codex.env     # BYO codex backend
+cp config/danus.env.example config/danus.env
+cp config/dsh.env.example config/dsh.env
 ```
 
-Then pick your **codex backend** (workers + verifier):
-
-- **API key (recommended, no login):** in `config/codex.env` set
-  `CODEX_BACKEND=api`, `CODEX_API_BASE_URL=<your OpenAI-compatible endpoint>`,
-  `CODEX_API_MODEL=gpt-5.6-sol`, `DANUS_CODEX_API_KEY=<your key>`. Then
-  `bash scripts/setup-codex.sh api` (bootstrap already did this if the key was
-  present) writes the provider — the key is read from the env var at run time, never
-  stored in a config file.
-- **ChatGPT subscription:** in `config/danus.env` set `CODEX_BACKEND=chatgpt`, then
-  `bash scripts/setup-codex.sh login` and follow the device-auth flow.
-
-The main agent steers the swarm by reasoning itself between rounds (optionally via
-exploratory codex subagents) — there is no separate strategy transport or API key
-to configure. See `configuration.md` for the full variable list.
-
-## 3. Confirm the codex backend is reachable
+Read the templates and fill the gitignored files with the operator's settings.
+Set `DANUS_DSH_PROVIDER`, provider endpoint/auth configuration, and explicit
+`DANUS_MAIN_MODEL` / `DANUS_MAIN_EFFORT`. The standard generated-provider path uses
+`DANUS_DSH_API`, `DANUS_DSH_API_BASE_URL`, `DANUS_DSH_API_KEY`, and
+`DANUS_DSH_REASONING_EFFORTS`; an approved preconfigured JSON
+provider overlay can instead be named by absolute `DANUS_DSH_PROVIDER_PATCH`.
+No provider choice or key should be guessed. See [configuration](configuration.md).
 
 ```bash
-bash scripts/check-codex.sh
-```
-
-It is **backend-aware**, exits `0` on success, and appends a trace line to
-`runtime/logs/codex-health.jsonl`:
-- **api** backend → makes one cheap live call to `CODEX_API_BASE_URL` (reads
-  `DANUS_CODEX_API_KEY`) and scans recent logs; `ok codex API reachable`.
-- **chatgpt** backend → there is no API endpoint to ping, so it probes the codex
-  login instead and prints `ok codex backend: chatgpt login active (Logged in using
-  ChatGPT)`.
-
-## 4. Bring up the verify service (REQUIRED)
-
-```bash
-bash scripts/services.sh up verify
-```
-
-**Without the verify service, `fact_submit` fails and no facts are ever produced.**
-`services.sh` `setsid`-detaches it so it survives your shell. See `operations.md`.
-
-## 5. Health check
-
-```bash
+bash scripts/setup-dsh.sh
+bash scripts/check-dsh.sh
 bash scripts/doctor.sh
 ```
 
-Reports green / `FAIL` / `warn` across config, python + deps, node, the codex
-wrapper + backend, a live verify `/health` probe, and soft checks for `pdflatex`
-(write-paper) and Chrome/Chromium (human-summary PDF).
+Setup generates the provider overlay with an environment-variable key reference.
+Check/doctor are nonbillable diagnostics; a successful check does **not** establish
+live inference reachability or model quality. Do not perform a live test without
+authorization. There is no legacy login flow or runtime fallback.
 
-A real healthy run (chatgpt backend, no TeX installed — the `pdflatex` `warn` is a
-soft, write-paper-only dependency):
+## 3. Initialize only when operating
 
-```
-== Danus doctor ==
-DANUS_ROOT=/home/you/Danus
-  ok   config/danus.env present
-  ok   config/codex.env present
-  ok   python: .../runtime/venv/bin/python
-  ok   python dep: mcp
-  ok   python pkg: danus (importable from any cwd)
-  ok   python deps: fastapi/uvicorn/pydantic
-  ok   node: .../runtime/node22/bin/node
-  ok   codex: codex-cli 0.142.5
-  ok   codex login ok (/home/you/codex-home)
-  ok   verify service up :8091 (ours)
-  warn no pdflatex on PATH (write-paper PDF render needs it; set TEX_ENGINE or install TeX)
-  ok   chrome: /usr/bin/chromium-browser (human-summary PDF)
-done.
+Launch the main agent through the repository main wrapper (`bin/danus-main`),
+whose default isolated Web mode binds `127.0.0.1:8090` (`DANUS_MAIN_PORT`).
+It composes `.dsh/` main-role configuration, native goals/schedules/subagents,
+MCP tools and the completed-turn snapshot hook. The optional `--headless` mode
+is one-shot and does not provide schedules. `bin/dsh` provides the isolated underlying DSH wrapper. Do not
+assume an unrelated ambient DSH GUI session has this project's configuration.
+
+On a fresh deployment, explicitly run the `initialize` skill. It collects missing
+operator preferences, confirms the configured route rather than inventing one,
+and starts the required service only with deployment authorization:
+
+```bash
+bash scripts/services.sh up verify
+bash scripts/services.sh status
 ```
 
-On the **api** backend the two codex lines instead read `codex backend: api provider
-configured` + `codex API live ping ok`.
+The verifier at `127.0.0.1:8091` must be up before proving; without it no submission
+can become a fact. Mark initialization complete only after checking the actual
+required stack, not merely because offline configuration checks passed.
 
-## 6. Connect codex and initialize
-
-Connect codex **rooted at this repo directory** (so `AGENTS.md`, `.codex/config.toml`,
-and `.agents/skills/` load). On the **first** session, the main agent runs the
-**`initialize`** skill: it interviews you (how to address you + language, git branch,
-spend ceiling, codex backend), provisions `OPERATOR.md` +
-`config/danus.env`, brings up verify, and writes `runtime/.danus-initialized`.
-
-After initialize, continue with `operating-guide.md` to create and run a project.
-
-## Troubleshooting
-
-- Backend flaky? `bash scripts/check-codex.sh` (history in
-  `runtime/logs/codex-health.jsonl`).
-- Host restarted? `bash scripts/recover.sh` (see `operations.md`).
-- Anything red in `doctor.sh` — fix it before starting workers.
+Continue with [the operating guide](operating-guide.md). The main agent reasons
+continuously, uses speculative DSH subagents, and directs verifier-gated workers.
+Review [Git recovery](git-resume.md) before relying on snapshots. Recovery after a
+host restart is in [operations](operations.md).

@@ -41,9 +41,9 @@ _GOOD_TEX = (
 
 @contextmanager
 def _capture_codex(stdout=_GOOD_TEX, returncode=0):
-    """Fake ``server.driver.run_codex`` capturing the prompts it is driven with in
+    """Fake ``server.driver.run_dsh`` capturing the prompts it is driven with in
     ``.prompts`` (so a test can assert what the tool assembled)."""
-    orig = server.driver.run_codex
+    orig = server.driver.run_dsh
     state = {"prompts": []}
 
     def fake(prompt, *, model, effort, timeout=0, networked=False, gateway_role="verifier"):
@@ -51,11 +51,11 @@ def _capture_codex(stdout=_GOOD_TEX, returncode=0):
         return subprocess.CompletedProcess(args=["fake"], returncode=returncode,
                                            stdout=stdout, stderr="")
 
-    server.driver.run_codex = fake
+    server.driver.run_dsh = fake
     try:
         yield state
     finally:
-        server.driver.run_codex = orig
+        server.driver.run_dsh = orig
 
 
 def _blank_brief_headline(pdir: Path) -> None:

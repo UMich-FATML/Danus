@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# danus CLI — the main agent's control surface over codex workers.
+# danus CLI — the main agent's control surface over DSH workers.
 # Self-locates the repo and sources the env, so it works without setup.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

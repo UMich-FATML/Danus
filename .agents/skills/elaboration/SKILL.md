@@ -1,6 +1,6 @@
 ---
 name: elaboration
-description: Write a high-signal mathematical synthesis from global memory and the fact graph for the Codex main agent's own strategy and worker dispatch.
+description: Write a high-signal mathematical synthesis from global memory and the fact graph for the DSH main agent's own strategy and worker dispatch.
 ---
 
 # Elaboration
@@ -11,7 +11,7 @@ one **elaboration** when the synthesis materially changes: a readable, deeply
 analytical synthesis for your own reasoning and worker dispatch. The heartbeat
 itself always requires a fresh global appraisal, but it need not create a
 duplicate elaboration when nothing material changed. You may ask speculative
-Codex subagents to explore individual gaps or undertake sustained technical
+DSH subagents to explore individual gaps or undertake sustained technical
 reasoning, but their reports remain unverified and must be labelled as
 hypotheses. You author the next `master_guidance` yourself.
 

@@ -55,7 +55,7 @@ Rules:
 - `gm_add` (publish the conclusion finding)
 - `gm_search` (recall related findings across the swarm)
 - `search_arxiv_theorems` for nontrivial consequences
-- Codex built-in web search for background definitions/terminology
+- DSH's available web-search tools for background definitions/terminology
 
 ## Failure Logging
 

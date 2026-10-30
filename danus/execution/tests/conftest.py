@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from danus.tests.dsh_fixture import fake_dsh_environment
 
 
 @pytest.fixture

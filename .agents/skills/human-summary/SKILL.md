@@ -11,7 +11,7 @@ mathematician fluent in standard English math terminology who knows **nothing**
 about how the work was produced.
 
 You do **not** author the prose yourself and you do **not** read the fact files.
-The report is written by an **isolated report-writer codex** behind the
+The report is written by an **isolated report-writer DSH session** behind the
 `human-summary` MCP tool, which is fed ONLY the verbatim problem statement and a
 **scrubbed, id-free bundle** of the project's verified results. That isolation is
 the structural guarantee that no internal identifier (`fact_id`, `author`,
@@ -29,7 +29,7 @@ summary_write(project="<project>")
 
 It assembles the writer prompt + `PROBLEM.md` + a scrubbed fact bundle
 (statement / proof / intuition bodies only — **all frontmatter stripped**, no fact
-ids, no author names, no machinery), drives an isolated codex, writes the result
+ids, no author names, no machinery), drives an isolated DSH session, writes the result
 to `<project>/report/report.md`, and runs a **leak check** on the output. It
 returns a small dict:
 
@@ -39,13 +39,14 @@ returns a small dict:
 
 **Honesty gate — do not proceed unless `status == "ok"`:**
 
-- `status == "ok"` means: codex exited 0, produced a non-empty report, AND the
+- `status == "ok"` means: DSH completed its turn and exited 0, produced a
+  non-empty final report, AND the
   leak check found **zero** hits (`leak_findings == []`). Only then does
   `report.md` exist as a clean artifact.
 - `status != "ok"` (`error` / `timeout` / `leak`): **no clean `report.md` is
   written.** On a leak, the offending output is quarantined at `report.leaky.md`
   and `leak_findings` names what leaked — report this to the operator, do NOT
-  render or deliver it, and do NOT hand-fix and pass it off as clean. If codex
+  render or deliver it, and do NOT hand-fix and pass it off as clean. If DSH session
   failed, surface `stderr_tail`.
 
 You never read the fact graph and never write the report prose; the tool owns
@@ -60,7 +61,7 @@ locked there, not here.
 Once you have a clean `report.md`, render it to a self-contained PDF:
 
 ```bash
-bash "${CLAUDE_SKILL_DIR}/render_pdf.sh" <report.md> <out.pdf> "Title"
+bash "${DANUS_ROOT:?}/.agents/skills/human-summary/render_pdf.sh" <report.md> <out.pdf> "Title"
 ```
 
 This server-renders markdown + KaTeX into self-contained HTML and prints it to
@@ -124,7 +125,7 @@ progress report, not a publication artifact.
 - A **headless Chrome / Chromium** binary — resolved via `DANUS_CHROME_BIN` (from
   `scripts/env.sh`) or a `google-chrome` on PATH. This is a local PDF-render
   binary only; it is unrelated to any browser transport. Confirm with
-  `bash "${CLAUDE_SKILL_DIR}/doctor.sh"`.
+  `bash "${DANUS_ROOT:?}/.agents/skills/human-summary/doctor.sh"`.
 - **node** (provisioned by `scripts/bootstrap.sh`) + the pinned node deps
   (`markdown-it`, `katex`) in `package.json`. `render_pdf.sh` installs them once if
   absent; the KaTeX CSS is then vendored from the local install, so subsequent

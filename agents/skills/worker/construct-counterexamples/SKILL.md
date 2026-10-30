@@ -72,7 +72,7 @@ Do this whenever the constructed example is useful enough to test future claims 
 
 - `gm_add` (publish counterexample / dead_end / example findings)
 - `gm_search` (recall stored counterexamples to reuse against new claims)
-- Codex built-in web search and `search_arxiv_theorems` to find standard counterexample patterns
+- DSH's available web-search tools and `search_arxiv_theorems` to find standard counterexample patterns
 
 ## Failure Logging
 

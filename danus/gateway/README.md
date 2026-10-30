@@ -33,8 +33,8 @@ nothing written. The gate trusts the verdict string; it does not recompute it.
 
 ## Launched by
 
-`bin/danus-mcp` (role=main, for codex via `.codex/config.toml`); each worker's
-`.codex/config.toml` (role=worker); the verify launcher injects it (role=verifier) so
+`bin/danus-mcp` (role=main, through the `.dsh/` main overlay); fresh worker
+DSH role overlays (role=worker); the verify launcher injects it (role=verifier) so
 the judge can call `search_arxiv_theorems`. Config (`DANUS_PROJECT_DIR`,
 `DANUS_AGENTS_ROOT`, `DANUS_VERIFY_URL`, role, author) is read at **call time**.
 
@@ -44,4 +44,4 @@ The 6-tool set + role table; `python -m danus.gateway` launch; the verify HTTP s
 
 ## Tests
 
-`python -m pytest danus/gateway/` (offline; the verify call is stubbed).
+`pixi run python -m pytest danus/gateway/` (offline; the verify call is stubbed).

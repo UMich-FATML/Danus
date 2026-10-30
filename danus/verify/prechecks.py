@@ -1,4 +1,4 @@
-"""Deterministic pre-checks for the verify service — run BEFORE any codex call.
+"""Deterministic pre-checks for the verify service — run BEFORE any DSH call.
 
 Two layers, both purely ADDITIVE (they can only REJECT more, never ACCEPT more),
 each env-toggleable:

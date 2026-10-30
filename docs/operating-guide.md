@@ -1,7 +1,7 @@
 # Danus — Operating Guide
 
 How to run a project end to end, from the operator's seat. You do this by **talking
-to the main agent** (codex) in natural language; it runs the CLI verbs and
+to the main agent** (DSH) in natural language; it runs the CLI verbs and
 tools for you. Read `concepts.md` first; set up with `getting-started.md`.
 
 > This guide describes the human workflow. Command/tool details are in
@@ -23,11 +23,11 @@ spend past the ceiling?); everything else the main agent acts on and reports.
 
 ## 0. First session — initialize
 
-On a fresh deployment the main agent runs `initialize`: it interviews you (how to
-address you + language, git branch off `main`, spend ceiling, codex backend),
-fills `OPERATOR.md` + `config/danus.env`, brings up the verify
-service, and marks `runtime/.danus-initialized`. After that, every session
-re-reads your `OPERATOR.md` and the project's `PROBLEM.md`.
+On an authorized fresh deployment, `initialize` confirms missing operator
+preferences and the explicit DSH provider/model/effort, fills `OPERATOR.md` and
+local config, checks the required service, and marks `runtime/.danus-initialized`.
+It is not triggered during coding merely because the profile is blank. After
+setup, operating sessions re-read your profile and the project's `PROBLEM.md`.
 
 ## 1. Start a project
 
@@ -42,24 +42,32 @@ Tell the main agent the problem. It will:
 A **project** is the unit of work: one problem, its own memory and fact graph. You
 can run several at once; every operation names a project.
 
-## 2. The strategy loop (steer, don't prove)
+## 2. The strategy loop (reason continuously, verify through workers)
 
-The main agent does **not** do the mathematics. It steers, periodically, on genuine
-new state:
+The main agent continuously does high-level mathematics: mechanisms, conjectures,
+proof architectures and decisive gaps. It maintains rolling speculative DSH
+subagents while workers develop durable verifier-gated evidence. Subagent output
+is advice, never a fact or a valid predecessor. The main repeatedly:
 
 1. **Elaborate** — distill the shared stores into a high-signal synthesis (verdict,
    closed routes, dangers, the missing bridge lemmas). *(the `elaboration` skill)*
 2. **Decide direction** — reason over that synthesis itself, optionally spawning
-   exploratory codex subagents.
+   exploratory DSH subagents.
 3. **Assign** — record the decided direction as `master_guidance` and give each
    worker its per-round task (`danus assign`).
 4. **Monitor** — watch `danus status` / the dashboard; repeat when there is new
    state.
 
-Cadence is roughly: a strategy beat every ~2h, a human-readable summary every
-~1h, while your session is active. **When your session is inactive, only the
-workers keep looping** — no auto strategy beats fire (there is no resident cron).
-For unattended operation see `operations.md` (the tmux example).
+Use `get_goal` / `create_goal` / `update_goal` for persistent continuity and
+separate DSH schedules for control (UTC `*/30 * * * *`) and macro audit
+(`0 */4 * * *`). List/reuse existing schedules; do an immediate catch-up control
+beat on authorized resume, plus an overdue/missing audit, coalescing missed beats.
+Delete schedules on pause, stop, or completion. A scheduled wake-up cannot rearm
+an active-disarmed goal: `update_goal` resume needs a direct top-level human
+request. Durable paused-to-active transition uses the operator-facing goal control.
+The runtime must remain available to process reminders; workers may continue
+independently, but no offline main reasoning is promised. See root `AGENTS.md`
+for the full review duties and `operations.md` for supervision.
 
 ## 3. Workers prove; facts accumulate
 

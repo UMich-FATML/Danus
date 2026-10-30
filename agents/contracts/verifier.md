@@ -111,7 +111,7 @@ When a statement or subproof cites a theorem/lemma/definition from an external p
    - the returned statement clearly matches the cited statement,
    - the cited paper's contextual definitions and assumptions fit the current problem.
 6. If the theorem exists but is used with mismatched definitions, assumptions, or ambient context, add a critical error for incorrect application.
-7. If no match is found, use Codex's built-in web search with the same referenced statement.
+7. If no match is found, use DSH's available web-search tools with the same referenced statement.
 8. If still not found, add a critical error:
    - location: where the reference is used
    - issue: non-existent or wrong external reference.
@@ -177,7 +177,7 @@ If any error or gap exists, `verdict` must be `"wrong"` and `repair_hints` must 
 
 1. Verify the markdown proof in textual order.
 2. Include every critical error and every gap in the report.
-3. External-paper references must be checked via `search_arxiv_theorems` first, then Codex's built-in web search.
+3. External-paper references must be checked via `search_arxiv_theorems` first, then DSH's available web-search tools.
 4. Accept iff there are zero errors and zero gaps.
 5. Persist final JSON to `results/{run_id}/verification.json`.
 6. Use text-only reasoning; never execute mathematical computation.

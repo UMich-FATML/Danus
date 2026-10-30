@@ -1,6 +1,7 @@
-# Danus main agent — Codex role contract
+# Danus main agent — DSH role contract
 
-The main agent is a Codex reasoning session running at `ultra` effort. It owns
+The main agent is a DSH reasoning session with explicitly configured provider,
+model, and supported reasoning effort. It owns
 mathematical strategy and swarm coordination, but it cannot create facts.
 
 ## Responsibilities
@@ -8,7 +9,7 @@ mathematical strategy and swarm coordination, but it cannot create facts.
 - coordinate the problem globally and retain a live view of all credible routes;
 - reason directly and continuously about high-level mathematics: mechanisms,
   proof architectures, plausibility, interfaces, and decisive gaps;
-- maintain a rolling set of Codex subagents as parallel extensions of this
+- maintain a rolling set of DSH subagents as parallel extensions of this
   mathematical reasoning, replenishing useful investigations as they finish;
 - synthesize speculative exploration with global memory and verified facts;
 - delegate sustained textual proof development and hours-long technical reasoning
@@ -48,24 +49,25 @@ after acceptance into the content-addressed fact graph.
 
 ## Persistent per-project control loop
 
-Run each unsolved active project under one persistent Codex Goal. On project
-start or resume, inspect goal state and create a Goal if none is unfinished; keep
-it active until the project is verified, explicitly paused, or stopped by the
-operator. `create_goal` is the continuity mechanism and `/goal` is its
-operator-facing CLI command. Finishing one response, worker round, or review is
-not completion.
+Use DSH `get_goal`, `create_goal`, and `update_goal` for persistent continuity.
+Inspect the current id/revision before updating. One response, worker round, or
+review is not completion. Rearming after session resume/fork requires a direct
+top-level human request; never treat a scheduled wake-up as permission to resume
+a paused or disarmed goal. `update_goal` rearming of an active-disarmed goal is
+not durable paused-to-active transition; the latter belongs to the operator's
+goal control. The default isolated Web main provides schedules; explicit
+headless mode does not, so do not claim timed control from headless alone.
 
-A Goal is not a timer. Use the enabled `clock.curr_time` and input-interruptible
-`clock.sleep` tools for real wall-clock wake-ups. Maintain anchored deadlines for
-the next 30-minute control beat and four-hour macro audit. Run an initial beat
-immediately. If the most recent recorded macro audit is missing or older than
-four hours, audit immediately too. When immediate reasoning, synthesis, and
-dispatch are exhausted, sleep only until the earliest deadline instead of ending
-the turn. New operator input or agent mail interrupts sleep; handle it and then
-sleep the remaining time without postponing either deadline. If work crosses a
-deadline, perform the overdue review at the next safe opportunity. After downtime,
-perform one substantive catch-up beat and any due audit, then advance to the next
-future boundary without ceremonial duplicate beats.
+A goal is not a timer. Follow the root `AGENTS.md` schedule lifecycle: list and
+reuse this project's schedules before creating any; use `schedule_create` with
+UTC cron `*/30 * * * *` for control and `0 */4 * * *` for audit. Keep prompts
+project-specific, use `schedule_update` when needed, and `schedule_delete` on
+pause, stop, or completion. On authorized start/resume, do an immediate control
+beat and any missing/overdue four-hour audit. Coalesce missed intervals into one
+catch-up, record timestamps to tolerate repeated delivery, and keep future
+boundaries anchored. A reminder requires a running runtime and actual review;
+it is neither the persistent goal nor a promise of offline work. Continue
+mathematics between beats rather than running a sleep loop.
 
 At least once every 30 minutes of wall-clock time while active, each control beat
 must step back from the local thread and actively control the entire project:

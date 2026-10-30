@@ -8,7 +8,7 @@ is enforced, and where a human should stay in the loop.
 
 Danus's entire notion of truth rests on the **verifier**: a result becomes a fact
 **if and only if** the verifier returns a `correct` verdict. That verifier is a
-**cold-start `codex` (LLM) judge**, not a formal proof assistant (no Lean/Coq/…),
+**cold-start DSH-hosted LLM judge**, not a formal proof assistant (no Lean/Coq/…),
 and by default **there is no human in the loop.**
 
 Consequences you must internalize:
@@ -30,10 +30,12 @@ given result.
 
 ## 2. Permission is enforced by construction, not by prompts
 
-Danus does not rely on agents "behaving". Every read/write to the truth stores goes
-through the **gateway** (a role-gated MCP server), and **what a role can do is
-exactly which tools it can even see** — ungated tools are physically absent from an
-agent's tool surface, not merely discouraged.
+The **gateway** enforces the sanctioned MCP write surface by role: tools outside
+the role are absent, not merely discouraged. This is not an OS security boundary.
+Agents can directly read allowed project files; a same-user process with filesystem
+write access could bypass the gateway. Prompt contracts, trusted code and host
+isolation remain necessary. Do not describe tool gating as protection against
+arbitrary shell access.
 
 The role table (`danus/gateway/roles.py`):
 
@@ -45,7 +47,7 @@ The role table (`danus/gateway/roles.py`):
 
 Load-bearing separations:
 
-- **The orchestrator can never fabricate a fact.** `main` has no `fact_submit`;
+- **The orchestrator cannot submit a fact through its MCP surface.** `main` has no `fact_submit`;
   only a `worker` can submit, and only the verifier can accept.
 - **The verifier is read-only.** It can look up literature; it writes nothing to
   the truth stores.
@@ -66,12 +68,13 @@ state machine, not a suggestion:
 If the verify service is unreachable, `fact_submit` returns a clean error and
 writes nothing — nothing is silently accepted.
 
-## 4. The verifier runs with the sandbox bypassed — trust its home and isolate the host
+## 4. Trust role configuration and isolate the host
 
-The worker and verifier `codex` sessions are launched with
-`--dangerously-bypass-approvals-and-sandbox`. This is required for autonomous
-operation, and it means Danus's host-level safety rests on two assumptions you must
-uphold:
+DSH roles use explicit generated overlays and isolated homes, with only their
+configured tool surfaces. Do not carry old runtime sandbox/yolo flags into DSH.
+Neither role prompts nor an isolated config directory prevent arbitrary same-user
+shell access to the host. Check the effective filesystem/tool policy for the
+role; host-level safety still depends on these assumptions:
 
 - **The agent home is trusted.** The verifier runs inside a fixed `AGENT_HOME`
   (its contract + skills). Treat that directory — and the worker/verifier prompts and
@@ -95,12 +98,12 @@ not expose these to an untrusted network.)
 
 ## 6. Secrets: bring your own key, never committed
 
-- All credentials (codex backend key, LaTeX-git token) live **only** in
+- All credentials (DSH provider key, LaTeX-git token) live **only** in
   gitignored `config/*.env` files. The tree ships `*.env.example` placeholders only —
   **no working key is committed.**
-- The codex backend key is **read at run time from an environment variable**; it is
-  **not** written into any config file that Danus generates (e.g. the codex
-  `config.toml` references the env var name, not the value).
+- The provider key is **read at run time from an environment variable**; generated
+  DSH overlays refer to the env name, not the secret value. Review externally
+  supplied provider overlays too; do not assume they are automatically scrubbed.
 - Before any commit, confirm `git status` shows no `config/*.env` and no `runtime/`.
 
 ## 7. The deterministic pre-checks (a safety net, and a caveat)
@@ -115,7 +118,23 @@ and are therefore domain-specific — the single most project-flavored part of t
 verifier stack. They are safe (additive); keep, generalize, or disable them to fit
 your domain.
 
-## 8. What to trust, and what to double-check
+## 8. Snapshot and restore limits
+
+Live snapshots are best effort: no worker drain and no project-wide writer
+barrier. Git operations are serialized, but captured notes/JSONL may be partial
+and facts may have dangling dependencies. Validation warnings are not a consistency
+certificate. Restore requires stopped workers and quiescent project writers,
+creates a pre-restore backup, fences old verifier results, and leaves workers
+stopped. `--allow-inconsistent` is an explicit risk override, not a repair.
+
+Credentials, generated role configuration, control files and raw DSH logs/session
+stores are excluded. Known secret checks cannot detect every secret embedded in
+prose. Metadata at `runtime/.gitstore/<project>.git` is not a security boundary;
+there is no `.git` pointer in the worktree and no submodule, but same-user shell
+access can still reach the history. Fresh sessions reconstruct from durable
+state, never transcript replay. See [Git recovery](git-resume.md).
+
+## 9. What to trust, and what to double-check
 
 - **Trust the shape:** the permission table, the write-gate, content-addressing,
   cascade revocation, and "no fact without a `correct` verdict" are enforced in code

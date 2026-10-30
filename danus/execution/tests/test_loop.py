@@ -1,12 +1,12 @@
-"""Offline tests for danus.execution.loop + __main__ (no real codex, no network).
+"""Offline tests for danus.execution.loop + __main__ (no real dsh, no network).
 
-Covers the round driver end-to-end without ever launching a real codex:
+Covers the round driver end-to-end without ever launching a real dsh:
 
-  - ``run_round`` against a FIXED fake-codex stub script: a chosen exit code, a
+  - ``run_round`` against a FIXED fake-dsh stub script: a chosen exit code, a
     hard-timeout (terminate → 124), and a missing binary (→ 127). These drive the
     real ``subprocess.Popen`` path in loop.py.
   - the ``main`` outer loop: stop-flag / deadline / max-rounds / consecutive-
-    failure caps, the codex-missing (127) short-circuit, and the ``ok``/``error``
+    failure caps, the dsh-missing (127) short-circuit, and the ``ok``/``error``
     status writes. ``run_round`` is monkeypatched so no subprocess spawns.
   - the SIGTERM handler (_on_term): terminates the in-flight child, writes
     ``terminated`` status, and exits 0.
@@ -69,10 +69,10 @@ def _mk_worker(tmp: Path, name: str = "high") -> L.WorkerLayout:
     return wl
 
 
-def _write_fake_codex(tmp: Path, body: str) -> Path:
-    """Write an executable python fake-codex stub and return its path. The stub
+def _write_fake_dsh(tmp: Path, body: str) -> Path:
+    """Write an executable python fake-dsh stub and return its path. The stub
     ignores all the exec args and just does what ``body`` says."""
-    p = tmp / "fake_codex"
+    p = tmp / "fake_dsh"
     p.write_text("#!/usr/bin/env python3\n" + body, encoding="utf-8")
     p.chmod(0o755)
     return p
@@ -80,23 +80,24 @@ def _write_fake_codex(tmp: Path, body: str) -> Path:
 
 # --- run_round: chosen exit code ------------------------------------------- #
 
-def test_run_round_returns_codex_rc(tmp: Path):
+def test_run_round_returns_dsh_rc(tmp: Path):
     wl = _mk_worker(tmp)
-    fake = _write_fake_codex(tmp, "import sys\nsys.stdout.write('hello from codex\\n')\nsys.exit(3)\n")
+    fake = _write_fake_dsh(tmp, "import sys\nsys.stdout.write('hello from dsh\\n')\nsys.exit(3)\n")
     log = wl.dir / "round.log"
-    with _env(DANUS_CODEX_BIN=str(fake)):
+    with _env(DANUS_DSH_BIN=str(fake)):
         rc = loop.run_round(wl, {"MODEL": "m", "REASONING_EFFORT": "high"},
                             "prompt", log, hard_timeout=30)
     assert rc == 3
-    assert "hello from codex" in log.read_text()
+    assert "hello from dsh" in log.read_text()
     assert loop._Child.proc is None            # cleared in finally
 
 
 def test_run_round_success_rc0(tmp: Path):
     wl = _mk_worker(tmp)
-    fake = _write_fake_codex(tmp, "import sys\nsys.exit(0)\n")
+    from danus.tests.test_dsh import events
+    fake = _write_fake_dsh(tmp, f"import sys\nsys.stdin.read()\nsys.stdout.write({events()!r})\n")
     log = wl.dir / "round.log"
-    with _env(DANUS_CODEX_BIN=str(fake)):
+    with _env(DANUS_DSH_BIN=str(fake)):
         rc = loop.run_round(wl, {"MODEL": "m", "REASONING_EFFORT": "high"},
                             "prompt", log, hard_timeout=0)   # 0 => no timeout (wait forever)
     assert rc == 0
@@ -107,9 +108,9 @@ def test_run_round_success_rc0(tmp: Path):
 def test_run_round_hard_timeout_terminates(tmp: Path):
     wl = _mk_worker(tmp)
     # sleeps far past the tiny hard_timeout; a plain terminate() ends it.
-    fake = _write_fake_codex(tmp, "import time\ntime.sleep(60)\n")
+    fake = _write_fake_dsh(tmp, "import time\ntime.sleep(60)\n")
     log = wl.dir / "round.log"
-    with _env(DANUS_CODEX_BIN=str(fake)):
+    with _env(DANUS_DSH_BIN=str(fake)):
         rc = loop.run_round(wl, {"MODEL": "m", "REASONING_EFFORT": "high"},
                             "prompt", log, hard_timeout=1)
     assert rc == 124
@@ -121,51 +122,36 @@ def test_run_round_hard_timeout_terminates(tmp: Path):
 
 def test_run_round_missing_binary_returns_127(tmp: Path):
     wl = _mk_worker(tmp)
-    missing = tmp / "does_not_exist_codex"
+    missing = tmp / "does_not_exist_dsh"
     log = wl.dir / "round.log"
-    with _env(DANUS_CODEX_BIN=str(missing)):
+    with _env(DANUS_DSH_BIN=str(missing)):
         rc = loop.run_round(wl, {"MODEL": "m", "REASONING_EFFORT": "high"},
                             "prompt", log, hard_timeout=30)
     assert rc == 127
-    assert "codex binary not found" in log.read_text()
+    assert "DSH binary/config not found" in log.read_text()
 
 
 # --- run_round: unresponsive child → terminate times out → kill → 124 ------ #
 
-def test_run_round_timeout_then_kill(tmp: Path):
-    """A child that ignores terminate() (wait(10) times out) is force-killed. We
-    fake Popen so the 10s terminate-grace does not slow the test."""
+def test_run_round_timeout_then_kill(tmp: Path, monkeypatch):
+    """Adapter hard timeout escalates against the complete child process group."""
     wl = _mk_worker(tmp)
-    log = wl.dir / "round.log"
-
-    class _StubProc:
-        def __init__(self):
-            self.terminated = False
-            self.killed = False
-            self._waits = 0
-
+    signals = []
+    class StubProc:
+        pid = 999999999
+        def communicate(self, prompt, timeout=None):
+            raise subprocess.TimeoutExpired("dsh", timeout)
         def wait(self, timeout=None):
-            self._waits += 1
-            # 1st wait = the hard-timeout expiry; 2nd wait = the 10s grace expiry.
-            raise subprocess.TimeoutExpired(cmd="codex", timeout=timeout)
-
-        def terminate(self):
-            self.terminated = True
-
-        def kill(self):
-            self.killed = True
-
-    stub = _StubProc()
-    orig_popen = subprocess.Popen
-    subprocess.Popen = lambda *a, **k: stub
-    try:
-        with _env(DANUS_CODEX_BIN=str(tmp / "anything")):
-            rc = loop.run_round(wl, {"MODEL": "m", "REASONING_EFFORT": "high"},
-                                "prompt", log, hard_timeout=1)
-    finally:
-        subprocess.Popen = orig_popen
-    assert rc == 124
-    assert stub.terminated and stub.killed          # terminate → (grace expired) → kill
+            if timeout is not None:
+                raise subprocess.TimeoutExpired("dsh", timeout)
+            return -9
+    async def ready(*args, **kwargs):
+        return set()
+    monkeypatch.setattr(loop.dsh, "preflight_mcp", ready)
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: StubProc())
+    monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append(sig))
+    rc = loop.run_round(wl, {"MODEL":"m", "REASONING_EFFORT":"high"}, "prompt", wl.dir / "round.log", 1)
+    assert rc == 124 and signals == [signal.SIGTERM, signal.SIGKILL]
     assert loop._Child.proc is None
 
 
@@ -256,9 +242,9 @@ def test_main_timeout_rc124_does_not_count_as_failure(tmp: Path):
     assert json.loads(wl.status.read_text())["state"] == "max_rounds"
 
 
-# --- main loop: codex missing (127) short-circuits ------------------------- #
+# --- main loop: dsh missing (127) short-circuits ------------------------- #
 
-def test_main_codex_missing_127(tmp: Path):
+def test_main_dsh_missing_127(tmp: Path):
     wl = _mk_worker(tmp)
     with _restore_sigterm(), _env(DANUS_ROUND_BEAT="0"):
         _patch_run_round(lambda *a, **k: 127)
@@ -268,7 +254,7 @@ def test_main_codex_missing_127(tmp: Path):
             _unpatch_run_round()
     assert rc == 127
     st = json.loads(wl.status.read_text())
-    assert st["state"] == "error" and st["error"] == "codex binary not found"
+    assert st["state"] == "error" and st["error"] == "DSH binary/config not found"
 
 
 # --- main: bad worker dir → rc 2 ------------------------------------------- #
@@ -280,7 +266,7 @@ def test_main_missing_worker_dir(tmp: Path):
 
 # --- SIGTERM handler: terminate child, write terminated, exit 0 ------------ #
 
-def test_main_sigterm_handler(tmp: Path):
+def test_main_sigterm_handler(tmp: Path, monkeypatch):
     wl = _mk_worker(tmp)
 
     class _FakeProc:
@@ -291,6 +277,7 @@ def test_main_sigterm_handler(tmp: Path):
             self.terminated = True
 
     fake_proc = _FakeProc()
+    monkeypatch.setattr(loop.dsh, "terminate_process_group", lambda proc: proc.terminate())
 
     # run_round: install a live child then deliver SIGTERM to ourselves so the
     # loop's own handler fires (covers _on_term end to end).
@@ -488,7 +475,7 @@ _NO_TMP = {test_kickoff_mentions_worker_and_project, test_dunder_main_usage_guar
 
 def main() -> None:
     tests = [
-        test_run_round_returns_codex_rc,
+        test_run_round_returns_dsh_rc,
         test_run_round_success_rc0,
         test_run_round_hard_timeout_terminates,
         test_run_round_missing_binary_returns_127,
@@ -498,7 +485,7 @@ def main() -> None:
         test_main_max_rounds_cap,
         test_main_consecutive_failure_cap,
         test_main_timeout_rc124_does_not_count_as_failure,
-        test_main_codex_missing_127,
+        test_main_dsh_missing_127,
         test_main_missing_worker_dir,
         test_main_sigterm_handler,
         test_write_status_corrupt_existing_recovers,

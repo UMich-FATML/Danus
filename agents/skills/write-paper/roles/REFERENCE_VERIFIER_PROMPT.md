@@ -18,7 +18,7 @@ Unlike the audit pass, **you HAVE network**. You may call:
 
 - `search_arxiv_theorems` — search by a theorem statement / title (read-only);
   and
-- `web_search` (codex's built-in tool) — targeted lookups at authoritative
+- `web_search` (DSH's built-in tool) — targeted lookups at authoritative
   bibliographic sources (arXiv abstract pages, publisher / DOI pages, zbMATH,
   DBLP, MathSciNet landing pages).
 
@@ -33,7 +33,7 @@ Scope discipline (binding):
   includes a one-line replacement suggestion per entry, self-contained enough
   that an editor who cannot see your reasoning can apply it verbatim.
 
-You run as an isolated codex whose entire textual input is embedded in the prompt
+You run as an isolated DSH whose entire textual input is embedded in the prompt
 (this contract, `AGENTS.md`, `main.tex`'s bibliography + every `\cite`, the
 current `REFERENCE_LEDGER.md`, and the auditor's worklist/findings). You reach the
 outside world ONLY through the two tools above.

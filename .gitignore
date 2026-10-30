@@ -12,6 +12,7 @@ dist/
 *.egg-info/
 
 # --- Virtual environments ---
+.pixi/
 .venv/
 venv/
 env/
@@ -55,6 +56,8 @@ agents/skills/write-paper/style/anchors/*
 
 # --- Per-project generated paper workspaces / runtime ---
 runtime/
+# Snapshot metadata remains private even with a custom agents root.
+.gitstore/
 # write-paper per-call diagnostic run logs (no leading slash: matches at any depth)
 paper/.runs/
 .coverage

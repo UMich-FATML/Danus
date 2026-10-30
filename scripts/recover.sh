@@ -1,46 +1,25 @@
 #!/usr/bin/env bash
-# =============================================================================
-# recover.sh — bring Danus back after a host restart, near-losslessly.
-#
-#   bash scripts/recover.sh
-#
-# All memory/state lives under this repo (+ runtime/): codex auth, every
-# project's fact graph + global memory, OPERATOR.md. Recovery only (1) rebuilds
-# the toolchain (notably the venv, whose base interpreter can go dangling if the
-# host python moved) and (2) restarts the services that were running. Idempotent;
-# safe to run anytime.
-# =============================================================================
-set -uo pipefail
+# Explicit deployment recovery; no login, model probes, or transcript replay.
+set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/env.sh"
-
-echo "== [1/4] rebuild toolchain (bootstrap: validates/recreates the venv, codex provider) =="
-bash "$HERE/bootstrap.sh" || { echo "recover: bootstrap failed — fix that first"; exit 1; }
-
-echo "== [2/4] clear stale pidfiles (the processes died with the host) =="
-rm -f "$DANUS_RUNTIME/run/"*.pid 2>/dev/null || true
-
-echo "== [3/4] restart the services that were running =="
+echo '== [1/3] verify pixi environment and pinned DSH =='
+bash "$HERE/bootstrap.sh"
+echo '== [2/3] restart services recorded in the autostart manifest =='
 AUTO="$DANUS_RUNTIME/run/autostart"
 if [ -s "$AUTO" ]; then
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    echo "  -> services.sh up $line"
-    bash "$HERE/services.sh" up $line || true
+  while read -r service argument extra; do
+    [ -n "$service" ] || continue
+    case "$service" in
+      verify) bash "$HERE/services.sh" up verify ;;
+      dashboard) [ -n "$argument" ] && [ -z "$extra" ] || { echo 'invalid dashboard autostart row' >&2; exit 1; }
+        bash "$HERE/services.sh" up dashboard "$argument" ;;
+      *) echo "unknown autostart service: $service" >&2; exit 1 ;;
+    esac
   done < "$AUTO"
 else
-  echo "  (no autostart manifest — nothing was recorded as running)"
-  echo "  the verify service is required before workers can submit facts:"
-  echo "     bash scripts/services.sh up verify"
+  echo 'No autostart manifest; nothing started.'
 fi
-
-echo "== [4/4] health =="
-if [ "${CODEX_BACKEND:-api}" = "api" ]; then
-  bash "$HERE/check-codex.sh" 2>/dev/null | sed 's/^/  codex: /' || true
-else
-  env CODEX_HOME="$CODEX_HOME" "$DANUS_ROOT/bin/codex" login status >/dev/null 2>&1 \
-    && echo "  codex: login ok (chatgpt, $CODEX_HOME)" \
-    || echo "  codex: NOT logged in (scripts/setup-codex.sh login)"
-fi
-bash "$HERE/services.sh" status
-echo "done — recovery complete."
+echo '== [3/3] read-only health =='
+bash "$HERE/doctor.sh"
+echo 'Recovery checks complete. Resume mathematical projects from their saved facts/checkpoints with a fresh main task.'

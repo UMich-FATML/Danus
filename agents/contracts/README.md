@@ -6,11 +6,12 @@ the binding operating protocol, distinct from the on-demand skills under
 
 | File | Tier | Reads / writes |
 | --- | --- | --- |
-| `main_agent.md` | main agent (Codex, `ultra` effort) | reasons continuously, maintains rolling exploratory subagents, reads global memory + fact graph, writes `master_guidance` / `elaboration`, and orchestrates. NO `fact_submit`. |
-| `worker.md` | codex worker | local memory (private) · global memory (`gm_add` / `gm_search`) · fact graph (`fact_submit`); the adaptive proving loop. Loaded per round via the worker home's `AGENTS.md` symlink. |
-| `verifier.md` | codex verifier (verify service) | judges `{statement, proof}` → strict verdict; called by `fact_submit`; read-only (only `search_arxiv_theorems`); writes its verdict JSON directly to results/{run_id}/verification.json. |
+| `main_agent.md` | main agent (DSH, explicitly configured model/effort) | reasons continuously, maintains rolling exploratory subagents, reads global memory + fact graph, writes `master_guidance` / `elaboration`, and orchestrates. NO `fact_submit`. |
+| `worker.md` | DSH worker | local memory (private) · global memory (`gm_add` / `gm_search`) · fact graph (`fact_submit`); the adaptive proving loop. Loaded per round via the explicit DSH `WORKER.md` role contract. |
+| `verifier.md` | DSH verifier (verify service) | judges `{statement, proof}` → strict verdict; called by `fact_submit`; read-only (only `search_arxiv_theorems`); writes its verdict JSON directly to results/{run_id}/verification.json. |
 
-Codex auto-loads the repo-root `AGENTS.md`; this file expands the same boundaries.
+The main DSH overlay loads the repo-root `AGENTS.md`; role overlays load only
+that role's contract and skills. This file expands the same boundaries.
 
 ## The shared spine
 
@@ -38,8 +39,8 @@ Consistent across all three tiers:
 - `danus/verify` — `verifier.md` **is** the verify service's system prompt; its
   P1/P3/P5/P6 prohibitions pair with the server's single-line prechecks (and are
   the sole enforcement wherever those prechecks are off).
-- `danus/execution` — loads `worker.md` per round (worker home `AGENTS.md`
-  symlinks to `agents/contracts/worker.md`); the worker reads `TASK.md` +
+- `danus/execution` — loads `worker.md` per round through the DSH `WORKER.md`
+  role contract and explicit skill directories; the worker reads `TASK.md` +
   `master_guidance`.
 - `agents/skills/worker` & `agents/skills/verify` — the contracts reference `$…`
   skills by name; the reconciliation note in `worker.md` tells inherited skills to

@@ -1,16 +1,16 @@
 """Offline HTTP-contract tests for danus.verify.service + __main__ entry.
 
-Exercises the FastAPI app via TestClient with the launcher's codex-run
-MONKEYPATCHED to a fake (no subprocess, no codex, no API spend), asserting the
+Exercises the FastAPI app via TestClient with the launcher's dsh-run
+MONKEYPATCHED to a fake (no subprocess, no dsh, no API spend), asserting the
 POST /verify + GET /health contract and every error status mapping. The
 ``python -m danus.verify`` entrypoint is exercised via runpy with uvicorn.run
 mocked so no server ever binds.
 
 HTTP contract under test:
   POST /verify {statement, proof} -> 200 {verification_report, verdict, repair_hints}
-  * 400 on a vacuous / precheck-failing input (before any codex run)
+  * 400 on a vacuous / precheck-failing input (before any dsh run)
   * 422 on a schema-invalid body (missing/empty field — pydantic)
-  * 504 on codex timeout, 500 on exit / missing-output / bad-json (launcher raises)
+  * 504 on dsh timeout, 500 on exit / missing-output / bad-json (launcher raises)
   GET /health -> 200 {status: "ok"}
 
 Runs standalone (``python -m danus.verify.tests.test_service``) and under pytest.
@@ -42,15 +42,15 @@ _CANNED_OK = {
 
 @contextmanager
 def _fake_run(fn):
-    """Replace the launcher's codex-run (imported into service) with a fake."""
-    orig_run = service.run_codex_verification
+    """Replace the launcher's dsh-run (imported into service) with a fake."""
+    orig_run = service.run_dsh_verification
     orig_alloc = service._allocate_run_id
-    service.run_codex_verification = fn
+    service.run_dsh_verification = fn
     service._allocate_run_id = lambda statement: "RID-fake"
     try:
         yield
     finally:
-        service.run_codex_verification = orig_run
+        service.run_dsh_verification = orig_run
         service._allocate_run_id = orig_alloc
 
 
@@ -100,11 +100,11 @@ def test_verify_reject_verdict_still_200():
 
 
 # --------------------------------------------------------------------------- #
-# /verify — precheck rejections happen BEFORE any codex run (400)             #
+# /verify — precheck rejections happen BEFORE any dsh run (400)             #
 # --------------------------------------------------------------------------- #
 
 def _must_not_run(*a, **k):
-    raise AssertionError("codex must not run when a precheck rejects")
+    raise AssertionError("dsh must not run when a precheck rejects")
 
 
 def test_verify_vacuous_proof_400():
@@ -132,13 +132,13 @@ def _raiser(status, detail):
 
 
 def test_verify_timeout_504():
-    with _fake_run(_raiser(504, "codex exec timed out after 900s")):
+    with _fake_run(_raiser(504, "dsh exec timed out after 900s")):
         resp = _client().post("/verify", json={"statement": _STMT, "proof": _PROOF})
     assert resp.status_code == 504 and "timed out" in resp.json()["detail"]
 
 
 def test_verify_exit_500():
-    with _fake_run(_raiser(500, "codex exec failed with exit code 7")):
+    with _fake_run(_raiser(500, "dsh exec failed with exit code 7")):
         resp = _client().post("/verify", json={"statement": _STMT, "proof": _PROOF})
     assert resp.status_code == 500 and "exit code" in resp.json()["detail"]
 
@@ -191,14 +191,14 @@ def test_main_entry_runs_uvicorn(monkeypatch):
     monkeypatch.setitem(sys.modules, "uvicorn", fake_uvicorn)
     monkeypatch.setenv("VERIFY_HOST", "127.0.0.1")
     monkeypatch.setenv("VERIFY_PORT", "8199")
-    monkeypatch.delenv("CODEX_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("DANUS_VERIFY_TIMEOUT_SECONDS", raising=False)
 
     runpy.run_module("danus.verify", run_name="__main__")
 
     assert calls["host"] == "127.0.0.1" and calls["port"] == 8199
     assert calls["app"] is not None
     # the entrypoint sets a bounded default per-verification timeout
-    assert os.environ.get("CODEX_TIMEOUT_SECONDS") == "900"
+    assert os.environ.get("DANUS_VERIFY_TIMEOUT_SECONDS") == "900"
 
 
 def main() -> None:

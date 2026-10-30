@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Raw DSH wrapper; main operators use bin/danus-main for the role overlay.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$HERE/../scripts/env.sh"
+self="$(readlink -f "$HERE/dsh")"
+candidate="${DANUS_DSH_BIN:-}"
+if [ -z "$candidate" ]; then
+  # Never resolve this wrapper back to itself through PATH or a symlink.
+  while IFS= read -r found; do
+    [ "$(readlink -f "$found")" = "$self" ] && continue
+    candidate="$found"; break
+  done < <(type -aP dsh || true)
+fi
+if [ -z "$candidate" ] || [ ! -x "$candidate" ]; then
+  echo 'DSH executable missing: set DANUS_DSH_BIN to an existing pinned executable (0.2.1-rc.5).' >&2
+  exit 127
+fi
+if [ "$(readlink -f "$candidate")" = "$self" ]; then
+  echo 'DANUS_DSH_BIN resolves to bin/dsh itself; choose the actual installed executable.' >&2
+  exit 2
+fi
+exec "$candidate" "$@"

@@ -12,14 +12,14 @@ clean PDF, ready for arXiv / an Overleaf (or other) LaTeX git repo. It is the
 publication sibling of `human-summary` (a reader-facing progress report with no
 bibliography).
 
-The heavy LaTeX work is delegated to a **local codex at extra-high (`xhigh`)
-reasoning** — the same codex machinery the workers and the verify service already
-use. The writer,
+The heavy LaTeX work is delegated to a **fresh isolated DSH session with
+explicitly configured provider, model and supported effort**, using the shared
+runtime adapter. The writer,
 auditor, verifier, and reviser roles are wrapped behind the `write-paper` MCP
 service (tools `paper_write` / `reference_audit` / `reference_verify` / `paper_revise`):
 you call them with structured args, the tool assembles each role's prompt
 internally (so the style guide and fact-graph bytes never enter your context) and
-drives the codex with each role isolated by construction. The reference chain is
+drives the DSH with each role isolated by construction. The reference chain is
 `auditor (offline, flags) → verifier (online, checks) → reviser (edits)`. You
 orchestrate the stages, call these tools, gate on compilation, and surface the one
 or two real decisions to the operator.
@@ -131,11 +131,11 @@ machine- or author-specific overlay.
 ## Per-call run logs (diagnostics)
 
 Every `paper_*` tool returns a `log_path` and writes a full on-disk diagnostic
-record there — the complete assembled prompt, codex's full stdout **and** full
+record there — the complete assembled prompt, DSH's full stdout **and** full
 stderr (not just the tail), the honest result, the tool's post-processing
 decisions, and the returned envelope. On a non-`ok` or surprising result, **read
-`log_path`** for the full assembled prompt + codex stdout/stderr + tool decisions
-before retrying or reporting — it lets you localize the failure (prompt vs codex
+`log_path`** for the full assembled prompt + DSH stdout/stderr + tool decisions
+before retrying or reporting — it lets you localize the failure (prompt vs DSH
 vs tool logic) instead of retrying blind. The small envelope (status / returncode
 / `stderr_tail` / flags / paths) is unchanged; `log_path` is additive. Run logs
 live under the paper's own `.runs/` (default `<project>/paper/.runs/`; a non-default
@@ -244,10 +244,10 @@ shape on its own line):
 ### 1. Seed the reference ledger
 
 ```bash
-python3 .../write-paper/driver/seed_ledger.py <project_dir> --headline <headline_fact_ids> --out <project>/paper/REFERENCE_LEDGER.md
+pixi run python .agents/skills/write-paper/driver/seed_ledger.py <project_dir> --headline <headline_fact_ids> --out <project>/paper/REFERENCE_LEDGER.md
 # multiple papers: add --paper <paper_id> to scope the closure to that paper's
 # recorded target and (with no --out) write the ledger into its own workspace:
-python3 .../write-paper/driver/seed_ledger.py <project_dir> --paper <paper_id>
+pixi run python .agents/skills/write-paper/driver/seed_ledger.py <project_dir> --paper <paper_id>
 ```
 
 This aggregates the `external_refs` of the **target-closure facts** into
@@ -299,7 +299,7 @@ anchors exist and changed, it runs so they are not ignored.
 **Call the `paper_write` tool** (the `write-paper` MCP service). You do **not**
 build the prompt by hand and you do **not** read the style guide, the structure
 plan, or the fact graph into your own context — the tool assembles all of that
-internally and drives the codex, so the large bytes never enter your window.
+internally and drives the DSH, so the large bytes never enter your window.
 
 **First, curate — MANDATORY, and it is YOUR job, at EVERY level. `paper_subgraph`.**
 
@@ -330,7 +330,7 @@ proof would overflow a single writer pass. So do what a human author does: read 
 paper_subgraph(project=<project>, headline=[<target fact ids>|omit], paper_id=<paper_id|omit>)
 ```
 
-It returns, deterministically (no codex, no writes), `{status, headline,
+It returns, deterministically (no DSH, no writes), `{status, headline,
 headline_source, count, facts}` where each `facts[i]` is `{id, statement (one-line),
 predecessors, dependents (in-closure in-degree — higher = more load-bearing),
 glossary_introduces}` in topological order. Read it, pick the results the paper
@@ -399,10 +399,10 @@ PRIME DIRECTIVE) and `roles/PAPER_WRITER_PROMPT.md`; the **unified**
 and the seeded `REFERENCE_LEDGER.md`; the fact-graph math of the **target
 closure** (each fact's `## statement` / `## proof` / `## intuition` + the
 predecessor DAG, verbatim); and, iff the brief's `structural_exemplar` names an
-existing anchor, that ONE anchor as a structural exemplar. Those codex-facing
+existing anchor, that ONE anchor as a structural exemplar. Those DSH-facing
 fixed files (`roles/`, `style/`, `boilerplate/`) live under
 `agents/skills/write-paper/`, **not here** — the MCP reads and embeds them; you never do. It
-writes codex's stdout to `<project>/paper/main.tex` (a full `\documentclass{amsart}`
+writes DSH's stdout to `<project>/paper/main.tex` (a full `\documentclass{amsart}`
 … `\end{document}`, real `\ref`/`\cite`, manual `\begin{thebibliography}{99}`).
 
 The tool returns a small dict — `{tex_path, status, returncode, headline,
@@ -410,7 +410,8 @@ headline_source, selected_facts, fact_id_warnings, gaps, stderr_tail, log_path}`
 `{status:"needs_target", message, candidates, log_path}` when the target is unset,
 or `{status:"bad_fact_ids", unknown_fact_ids}` when a selected id is not in the
 graph). **Honesty:** it reports `status="ok"` only
-on a zero exit with non-empty output; a nonzero codex exit, an empty artifact, or
+on a zero exit with completed-turn evidence and non-empty final output;
+a nonzero DSH exit, an incomplete turn, an empty artifact, or
 a timeout is `status != "ok"` and **nothing is written** — do not treat a non-`ok`
 result as a produced paper, and a `needs_target` result means you must record the
 target first (`danus finalize`). `headline`/`headline_source` report which target
@@ -423,13 +424,13 @@ answer to a large closure: a well-chosen subset writes in one pass. But if even 
 prompt you assembled is still over budget (`DANUS_PAPER_WRITE_CHUNK_CHARS`, default
 ~800000 chars ≈ ~200K tokens) — a huge selection, or `fact_ids` omitted on a giant
 closure — `paper_write` falls back automatically to **chunked** generation: a
-**planning pass** (one codex call on the STATEMENTS ONLY of the set being written →
+**planning pass** (one DSH call on the STATEMENTS ONLY of the set being written →
 the fixed preamble + front matter + a section plan assigning every fact + the
-bibliography), then **per-section fill** (one codex call per section, each given THIS
+bibliography), then **per-section fill** (one DSH call per section, each given THIS
 section's full proofs + the fixed preamble/labels + every other result's statement
 for `\ref`), then a deterministic **stitch** into one `main.tex`. When you passed
 `fact_ids`/`instructions`, the fallback chunks exactly that curated set and the
-planner honors your instructions. Each call is still a NON-AGENTIC isolated codex
+planner honors your instructions. Each call is still a NON-AGENTIC isolated DSH
 (empty cwd, everything embedded, no tool calls) — chunking is decided in Python and
 sliced by section, not an agentic retrieval writer. The result carries `chunked:
 true` and `sections: <n>`. Under budget → the single-pass path runs unchanged.
@@ -441,11 +442,11 @@ generation fails honestly (`status="chunk_failed"`, `failed_phase`) and **no
 gate (stage 3) and `paper_verify_math`. If chunking keeps failing, prefer selecting
 a smaller `fact_ids` subset, or split the work into multiple papers via `paper_id`.
 
-**Manual fallback — you assemble and drive codex yourself (last resort).** If
+**Manual fallback — you assemble and drive DSH yourself (last resort).** If
 `paper_write` returns `status="chunk_failed"` (or any non-`ok` you cannot resolve by
 curating a smaller `fact_ids` subset or splitting into multiple papers), fall back to
-the flexible manual path: **you** write the paper by driving codex directly. This is
-the one place you assemble the codex prompt by hand — use your judgment (curate the
+the flexible manual path: **you** write the paper by driving DSH directly. This is
+the one place you assemble the DSH prompt by hand — use your judgment (curate the
 facts, restructure the sections, adjust emphasis) to get past whatever the
 deterministic path choked on.
 
@@ -455,14 +456,14 @@ deterministic path choked on.
    your curated `fact_ids` (each fact's `## statement`/`## proof` from
    `<project>/fact_graph/facts/*.md`, or via `paper_subgraph`), `style/STYLE_GUIDE.md`
    + `style/PAPER_STRUCTURE.md`, the brief, and the seeded `REFERENCE_LEDGER.md`.
-2. **Drive codex yourself.** The prompt is large — write it to a temp file and put it
-   on **stdin** (never argv), and run the repo's codex wrapper at `xhigh`, read-only
-   (the same flags the tool uses — see `danus.authoring.driver`):
-   ```bash
-   bin/codex exec --model "$DANUS_MAIN_MODEL" --config model_reasoning_effort=xhigh \
-     --sandbox read-only --skip-git-repo-check - < /tmp/writer_prompt.md \
-     > <project>/paper/main.tex          # or <project>/papers/<paper_id>/main.tex
-   ```
+2. **Use the shared DSH authoring driver.** Pass the assembled prompt to
+   `danus.authoring.driver.run_dsh` with the explicitly configured paper model,
+   supported effort and bounded timeout, `networked=False`. Run the driver in the
+   Pixi environment. It sends the prompt on stdin (never argv), creates a fresh
+   empty workspace, and exposes no tools. Require a successful process and
+   completed-turn/final-output evidence before writing its final-text `stdout`
+   to the paper artifact. Never redirect raw DSH JSON events into `main.tex`.
+   This uses the same role isolation as the MCP tool, not an ad-hoc CLI bypass.
    In this fallback the bytes DO enter your context (you read/assemble the prompt) —
    that is the trade for flexibility, and it is acceptable because it is the rare last
    resort, not the hot path.
@@ -577,7 +578,7 @@ Runs the LaTeX engine (default `pdflatex`; `xelatex`/`lualatex`/`tectonic` via
 no TeX Live installed, `TEX_ENGINE=tectonic` (after `bash scripts/install-tex.sh`)
 is the zero-dependency engine.
 **Do not proceed past a failed compile** — feed the offending log lines back to a
-codex revise round (stage 5) and recompile. The compile is the **tool's /
+DSH revise round (stage 5) and recompile. The compile is the **tool's /
 orchestrator's** gate, never the reviser's own self-check (the reviser runs in an
 empty cwd and cannot compile). **Authority boundary:** `paper_write` does NOT
 compile — run this gate once on the writer's first `main.tex`. `paper_revise`
@@ -598,7 +599,7 @@ reference_audit(project=<project>, paper_id=<paper_id|omit for default>)
 The tool assembles the auditor prompt (`roles/AGENTS.md` +
 `roles/REFERENCE_AUDITOR_PROMPT.md` + `main.tex` + `REFERENCE_LEDGER.md` — and
 **nothing else**: the auditor never sees the fact graph, the style guide, or the
-structure plan) and drives a codex that has **no tools and no network**. The
+structure plan) and drives a DSH that has **no tools and no network**. The
 auditor **only flags** entries it cannot vouch for; **verification is
 `reference_verify`'s job** (Stage 4.5), not the auditor's. It returns
 `{findings, ledger_path, status, returncode, log_path}`
@@ -623,12 +624,11 @@ verifier (online, checks) → reviser (edits)`, symmetric to the proving chain
 `worker → verifier → fact_graph`. The tool assembles the verifier prompt
 (`roles/AGENTS.md` + `roles/REFERENCE_VERIFIER_PROMPT.md` + `main.tex` +
 `REFERENCE_LEDGER.md` + the auditor's `findings` — and **no fact graph, style, or
-structure**) and drives a codex over the **networked** path:
-`--dangerously-bypass-approvals-and-sandbox` + the danus gateway at
-`DANUS_ROLE=verifier` (exposing only `search_arxiv_theorems`, minimum privilege) +
-codex's built-in `web_search`. The codex still runs in an empty cwd, so it cannot
-touch the project tree; its only outward reach is the gateway's read-only tool +
-web.
+structure**) and drives a DSH session over the **networked** path: an explicit
+read-only role overlay plus the danus gateway at `DANUS_ROLE=verifier`
+(exposing only `search_arxiv_theorems`) and configured web-search tools. It runs
+in a fresh empty workspace with scoped tools; no old sandbox/yolo flags or ambient
+session configuration are reused.
 
 Per flagged entry it does: `search_arxiv_theorems(statement/title)` → best
 `arxiv_id` → open `https://arxiv.org/abs/<id>` for the authoritative
@@ -672,7 +672,7 @@ paper_revise(project=<project>, compile_log=<failing pdflatex lines>, notes=<ope
 The tool assembles the reviser prompt (`roles/AGENTS.md` +
 `roles/PAPER_REVISER_PROMPT.md` + `style/STYLE_GUIDE.md` + `main.tex` + the
 `REVISION_LOG.md` tail + the trigger you passed as `compile_log` / `citation_fixes`
-/ `notes` — and **no fact graph**), drives a codex, and — on a clean
+/ `notes` — and **no fact graph**), drives a DSH, and — on a clean
 gate — overwrites `<project>/paper/main.tex`. Pass the offending log lines from a
 failed compile as `compile_log`, the verifier's per-entry replacement suggestions as
 `citation_fixes` (Stage 4.5's seam), and any operator editorial direction or math
@@ -704,7 +704,7 @@ findings as `notes`.
   `[degraded: ...]` note if the reviser emitted no summary section).
 
 It returns `{tex_path, status, returncode, revision_log_path, leak_findings,
-compile, compile_attempts, stderr_tail, log_path}`; on a non-`ok` codex status nothing is
+compile, compile_attempts, stderr_tail, log_path}`; on a non-`ok` DSH status nothing is
 overwritten. Recompiling standalone (stage 3) after a revise round is your
 independent confirmation, but the tool has already gated the compile internally.
 
@@ -725,7 +725,7 @@ themselves a fact. Those seams are exactly where a correct set of facts becomes 
 incorrect paper. A fact's earlier `correct` verdict does not transfer to its
 re-stitched paper rendering.
 
-**What the tool does.** One fresh **paper-math verifier** codex (a dedicated role —
+**What the tool does.** One fresh **paper-math verifier** DSH (a dedicated role —
 separate from the fact-submission verifier and the reference verifier; a one-shot
 run, no resident service) reads the **whole** `main.tex` development in reading
 order plus the confirmed `REFERENCE_LEDGER.md`. It **trusts the confirmed precise
@@ -742,7 +742,7 @@ ones in the row's `ignorable` field, and returns `{status, verdict, repair_hints
 must_fix, ignorable, ignorable_findings, body_chars, ledger_path, log_path,
 deliver_ok, blockers}`.
 
-**Honesty:** a failed verify **RUN** (codex error, unparseable verdict) is
+**Honesty:** a failed verify **RUN** (DSH error, unparseable verdict) is
 `status="verify_error"` — **NOT** a paper that passed; `status="passed"` requires
 an actual all-clear (no `must-fix` findings). Do not treat a `verify_error` as a
 clean paper.
@@ -980,7 +980,7 @@ you ACT on each must-fix. For each:
 **On `too_large` — YOU decompose; the tool never chunks.** `too_large` means the
 assembled verifier input (role prompt + `REFERENCE_LEDGER` + the whole `main.tex`
 body) exceeds `DANUS_PAPER_VERIFY_WHOLE_DOC_CAP` (default ~700K chars ≈ 175K
-tokens): one codex call cannot hold the paper. The tool records the blocker
+tokens): one DSH call cannot hold the paper. The tool records the blocker
 honestly and does **not** split — decomposition is a judgment call, so it is
 yours:
 
@@ -1010,8 +1010,10 @@ yours:
 3. **Drive the verifier yourself**, mirroring the tool: read
    `agents/skills/write-paper/roles/PAPER_MATH_VERIFIER_PROMPT.md` (and
    `roles/AGENTS.md`), append the confirmed `REFERENCE_LEDGER.md` and the part
-   document, and run a fresh `bin/codex exec --sandbox read-only` per part; read
-   the final findings JSON from its output. A part is clear iff it has **zero
+   document, and use a fresh `danus.authoring.driver.run_dsh` invocation per part
+   with `networked=False`, explicit model/effort and bounded timeout. Require
+   successful completed-turn evidence and read findings JSON from final text,
+   never from raw events or intermediate messages. A part is clear iff it has **zero
    `must-fix` findings** (an `ignorable`-only residual still clears — record and
    surface it). A part carrying any `must-fix` → the revise loop above for those
    findings, then re-verify that part and every part that took its statement as
@@ -1054,7 +1056,7 @@ mathematics, cite honestly, never fabricate a reference, leak no pipeline metada
 `\begin{thebibliography}{99}`, manual `Theorem~\ref{}` cross-references, exact
 citation numbers, the filler bans, and the acknowledgement disclosure — is the
 **default** AMS-style house style. It lives in `STYLE_GUIDE.md` /
-`PAPER_STRUCTURE.md`, is embedded into the codex by the tool, and is the
+`PAPER_STRUCTURE.md`, is embedded into the DSH by the tool, and is the
 operator's to change (edit those files, or override per paper in
 `PROJECT_BRIEF.md`). **You never apply it yourself** — you do not write LaTeX.
 

@@ -1,6 +1,6 @@
 ---
 name: check-referenced-statements
-description: Validate externally referenced theorems by querying arXiv theorem search first and Codex's built-in web search second. Use when a markdown proof cites statements from external papers.
+description: Validate externally referenced theorems by querying arXiv theorem search first and DSH's built-in web search second. Use when a markdown proof cites statements from external papers.
 ---
 
 # Check Referenced Statements
@@ -25,7 +25,7 @@ For each cited external theorem/lemma/definition:
    - the contextual definitions and hypotheses align with the current problem.
 6. If the theorem exists but the current proof uses different definitions, hypotheses, ambient objects, or a subtly different defining formula, record a critical error for incorrect application.
 7. If the proof uses the cited statement to derive further conclusions, verify that transition too: a hand-wavy specialization or instantiation is a `gap`; a logically invalid transition is a `critical_error`; if it deduces one property from another, compare their exact defining formulas before accepting.
-8. If no match is found, use Codex's built-in web search with the same statement text.
+8. If no match is found, use DSH's built-in web search with the same statement text.
 9. If still not found, emit a critical error:
    - location: where the citation is used,
    - issue: referenced theorem appears non-existent or incorrectly cited.
@@ -48,7 +48,7 @@ Produce one record per reference check, kept in context for synthesis:
   "web_match_found": false,
   "critical_error": {
     "location": "Lemma 2",
-    "issue": "Referenced external theorem was not found in arXiv search or Codex built-in web search."
+    "issue": "Referenced external theorem was not found in arXiv search or DSH built-in web search."
   }
 }
 ```
@@ -56,6 +56,6 @@ Produce one record per reference check, kept in context for synthesis:
 ## Tools
 
 - `search_arxiv_theorems`
-- Codex's built-in web search
+- DSH's built-in web search
 
 (Findings stay in context for synthesis — nothing is persisted.)

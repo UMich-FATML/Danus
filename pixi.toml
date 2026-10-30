@@ -1,0 +1,29 @@
+[workspace]
+name = "danus"
+version = "0.1.0"
+description = "Danus development and deployment environment"
+channels = ["conda-forge"]
+platforms = ["linux-64", "linux-aarch64", "osx-arm64"]
+
+[dependencies]
+python = ">=3.10,<3.14"
+git = ">=2.40"
+nodejs = ">=22,<25"
+
+[pypi-dependencies]
+danus = { path = ".", editable = true, extras = ["dev"] }
+
+[tasks]
+check = "bash scripts/check.sh"
+test = "python -m pytest danus/ -q"
+
+[feature.py310.dependencies]
+python = "3.10.*"
+
+[feature.py313.dependencies]
+python = "3.13.*"
+
+[environments]
+default = { features = [], solve-group = "default" }
+py310 = { features = ["py310"], solve-group = "py310" }
+py313 = { features = ["py313"], solve-group = "py313" }

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # =============================================================================
 # Danus services — start/stop/inspect the long-running services so they PERSIST
-# beyond the session that launched them (a codex session, an ssh shell…).
+# beyond the session that launched them (a DSH session, an ssh shell…).
 #
 # Why setsid: a plain `… &` background job started from a transient shell gets
 # reaped when that shell exits. `setsid` puts the service in its OWN session
 # (reparented to init), with stdio detached — so it keeps running after the
-# codex session ends / the laptop disconnects.
+# DSH session ends / the laptop disconnects.
 #
 #   bash scripts/services.sh up   verify
 #   bash scripts/services.sh up   dashboard <project>
@@ -87,7 +87,7 @@ case "${1:-}" in
     esac ;;
   test)
     echo "== probing services =="
-    bash "$DANUS_ROOT/scripts/check-codex.sh" 2>/dev/null | sed 's/^/  codex: /' || true
+    bash "$DANUS_ROOT/scripts/check-DSH.sh" 2>/dev/null | sed 's/^/  DSH: /' || true
     case "$(danus_verify_health)" in
       ours)    echo "  ok   verify  http://127.0.0.1:$VERIFY_PORT (ours)" ;;
       foreign) echo "  FAIL verify  :$VERIFY_PORT answered by a FOREIGN process (not ours) — set a distinct VERIFY_PORT" ;;

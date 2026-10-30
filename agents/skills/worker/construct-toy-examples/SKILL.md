@@ -48,7 +48,7 @@ Publish each toy example to global memory with `gm_add` (kind `example`):
 - `gm_add` (publish the example finding)
 - `gm_search` (recall related findings)
 - `search_arxiv_theorems` for matching examples/known motifs
-- Codex built-in web search for known example families and standard constructions
+- DSH's available web-search tools for known example families and standard constructions
 - use `$search-math-results` when broader retrieval is needed
 
 ## Failure Logging

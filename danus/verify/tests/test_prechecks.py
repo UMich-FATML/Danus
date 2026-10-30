@@ -1,4 +1,4 @@
-"""Exhaustive offline tests for danus.verify.prechecks — pure functions, no codex.
+"""Exhaustive offline tests for danus.verify.prechecks — pure functions, no DSH.
 
 Covers EVERY precheck function and EVERY rejection branch:
   * is_vacuous_proof: too-few-chars, too-few-words, single vacuous marker, clean pass

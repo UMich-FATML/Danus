@@ -4,16 +4,16 @@ Wraps the four paper roles (writer / auditor / verifier / reviser) behind hard-c
 MCP tools so the main agent invokes them with **structured args** (never a
 hand-assembled prompt): the large bytes (style guide + fact-graph content) are
 assembled inside the tool (``assemble.py``) and never pass through the main
-agent's context, and each role's codex runs isolated by construction
+agent's context, and each role's dsh runs isolated by construction
 (``driver.py`` — empty cwd + fully-embedded prompt). The reference chain is
 ``auditor (offline, flags) -> verifier (online, checks) -> reviser (edits)`` —
 symmetric to the proving chain ``worker -> verifier -> fact_graph``. Only
-``reference_verify`` runs codex over the NETWORKED path (gateway
+``reference_verify`` runs dsh over the NETWORKED path (gateway
 ``search_arxiv_theorems`` + web_search, ``DANUS_ROLE=verifier`` minimum privilege);
 the other three stay offline.
 
 Tool returns are **small and honest**: paths + status + flags, never the full
-``.tex``. ``status`` reflects codex's returncode/stderr/stdout — never ``ok`` on
+``.tex``. ``status`` reflects dsh's returncode/stderr/stdout — never ``ok`` on
 a nonzero exit, empty stdout, or timeout.
 
 Config resolution (env read at CALL time):
@@ -21,9 +21,9 @@ Config resolution (env read at CALL time):
                       address any project by name via the ``project`` arg
   DANUS_PROJECT_DIR   fallback project dir when no ``project`` name is given
   DANUS_WRITE_PAPER_SKILL_DIR   the operator-editable fixed files (see assemble.py)
-  DANUS_CODEX_BIN     codex binary
-  DANUS_WRITE_PAPER_MODEL / DANUS_WRITE_PAPER_EFFORT   per-service codex overrides;
-                      fall back to the neutral DANUS_CODEX_MODEL / DANUS_CODEX_EFFORT
+  DANUS_DSH_BIN     dsh binary
+  DANUS_WRITE_PAPER_MODEL / DANUS_WRITE_PAPER_EFFORT   per-service dsh overrides;
+                      fall back to the neutral DANUS_MAIN_MODEL / DANUS_MAIN_EFFORT
 """
 
 from __future__ import annotations
@@ -69,25 +69,25 @@ _LEAK_PATTERNS = [
 
 def _model() -> str:
     """Per-service model override, else the neutral default: DANUS_WRITE_PAPER_MODEL
-    -> DANUS_CODEX_MODEL -> the driver's built-in default."""
+    -> DANUS_MAIN_MODEL -> the driver's built-in default."""
     return os.environ.get("DANUS_WRITE_PAPER_MODEL") or driver.default_model()
 
 
 def _effort() -> str:
     """Per-service effort override, else the neutral default:
-    DANUS_WRITE_PAPER_EFFORT -> DANUS_CODEX_EFFORT -> the driver's built-in default."""
+    DANUS_WRITE_PAPER_EFFORT -> DANUS_MAIN_EFFORT -> the driver's built-in default."""
     return os.environ.get("DANUS_WRITE_PAPER_EFFORT") or driver.default_effort()
 
 
 # --------------------------------------------------------------------------- #
-# codex driving + honesty                                                     #
+# dsh driving + honesty                                                     #
 # --------------------------------------------------------------------------- #
 
 def _attach_raw(res: Dict[str, Any], cp: Any) -> Dict[str, Any]:
-    """Attach the FULL stderr and the codex argv to the classifier's small dict so
+    """Attach the FULL stderr and the dsh argv to the classifier's small dict so
     the per-call run log can record them (``classify_outcome`` keeps only a
-    ``stderr_tail`` and drops the command). The prompt is passed to codex over STDIN
-    (the driver uses ``input=prompt`` with an argv ending in ``-``), so the argv
+    ``stderr_tail`` and drops the command). The prompt is passed to dsh over STDIN
+    (the driver writes the prompt to the child's stdin), so the argv
     carries NO prompt and NO secret — safe to log. ``cp`` is the driver's
     ``CompletedProcess`` on a normal run, or the raised exception on a
     timeout/missing-binary (``TimeoutExpired`` carries ``.cmd``, no ``.stderr``)."""
@@ -97,31 +97,31 @@ def _attach_raw(res: Dict[str, Any], cp: Any) -> Dict[str, Any]:
 
 
 def _drive(prompt: str, effort: Optional[str] = None) -> Dict[str, Any]:
-    """Run the codex driver once and classify the outcome honestly (see
+    """Run the dsh driver once and classify the outcome honestly (see
     ``authoring.common.classify_outcome``: ``ok`` needs a zero exit AND non-empty
     stdout; a nonzero exit, timeout, missing binary, or empty output is not
     ``ok``). Also attaches ``stderr_full`` + ``cmd`` for the run log (see
     ``_attach_raw``). ``effort`` overrides the reasoning effort for this call (e.g.
     ``"low"`` for a mechanical compile-fix retry — no reasoning needed)."""
     try:
-        cp: Any = driver.run_codex(prompt, model=_model(), effort=effort or _effort())
-    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        cp: Any = driver.run_dsh(prompt, model=_model(), effort=effort or _effort())
+    except (subprocess.TimeoutExpired, OSError, ValueError) as e:
         cp = e
     return _attach_raw(classify_outcome(cp, artifact_noun="artifact"), cp)
 
 
 def _drive_networked(prompt: str) -> Dict[str, Any]:
-    """Like ``_drive`` but over the NETWORKED codex path (``driver.run_codex(
-    networked=True)``): ``--dangerously-bypass-approvals-and-sandbox`` + the danus
-    gateway injected at ``DANUS_ROLE=verifier`` (read-only ``search_arxiv_theorems``,
-    minimum privilege) + codex's built-in ``web_search``. Used ONLY by
+    """Like ``_drive`` but over the NETWORKED DSH role overlay (``driver.run_dsh(
+    networked=True)``): the danus gateway at ``DANUS_ROLE=verifier`` (read-only
+    ``search_arxiv_theorems``, minimum privilege) and configured web tools.
+    File and shell tools remain disabled. Used ONLY by
     ``reference_verify`` — the sole tool that needs live arXiv/web access. Same honesty
     classifier (a nonzero exit / empty stdout / timeout is never ``ok``); also
     attaches ``stderr_full`` + ``cmd`` for the run log."""
     try:
-        cp: Any = driver.run_codex(prompt, model=_model(), effort=_effort(),
+        cp: Any = driver.run_dsh(prompt, model=_model(), effort=_effort(),
                                    networked=True, gateway_role="verifier")
-    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+    except (subprocess.TimeoutExpired, OSError, ValueError) as e:
         cp = e
     return _attach_raw(classify_outcome(cp, artifact_noun="verdicts"), cp)
 
@@ -144,9 +144,9 @@ def _write_run_log(tool: str, project_dir: Any, prompt: Optional[str],
     (or ``None`` when disabled / on any failure).
 
     Mirrors the verify service's per-run ``log.md`` (``danus/verify/launcher.py``):
-    the full assembled prompt, codex's FULL stdout AND FULL stderr, the honest
+    the full assembled prompt, dsh's FULL stdout AND FULL stderr, the honest
     result, the tool's post-processing decisions, and the small envelope the tool is
-    about to return — so the main agent can localize a failure (prompt vs codex vs
+    about to return — so the main agent can localize a failure (prompt vs dsh vs
     tool logic) without the bytes ever entering its context.
 
     Written to ``<paper workspace>/.runs/<utc>-<tool>/log.md`` (``<utc>`` = the
@@ -166,11 +166,11 @@ def _write_run_log(tool: str, project_dir: Any, prompt: Optional[str],
         log_path = run_dir / "log.md"
 
         cmd = res.get("cmd")
-        command = " ".join(str(c) for c in cmd) if cmd else "(no codex run)"
+        command = " ".join(str(c) for c in cmd) if cmd else "(no dsh run)"
         stdout = res.get("stdout", "") or "(empty)"
         stderr = res.get("stderr_full", "") or "(empty)"
         prompt_body = prompt if prompt is not None else (
-            "(no prompt — early return before codex was driven)")
+            "(no prompt — early return before dsh was driven)")
 
         parts: List[str] = []
         parts.append("## Header")
@@ -184,10 +184,10 @@ def _write_run_log(tool: str, project_dir: Any, prompt: Optional[str],
         parts.append("\n## INPUT — assembled prompt\n")
         parts.append(prompt_body)
 
-        parts.append("\n## CODEX OUTPUT — stdout\n")
+        parts.append("\n## DSH OUTPUT — stdout\n")
         parts.append(stdout)
 
-        parts.append("\n## CODEX OUTPUT — stderr\n")
+        parts.append("\n## DSH OUTPUT — stderr\n")
         parts.append(stderr)
 
         parts.append("\n## RESULT")
@@ -227,7 +227,7 @@ def _ensure_swarm_stopped(project: str) -> Dict[str, Any]:
     """Gracefully wind down the project's worker swarm when entering write-paper
     (default behavior): entering write-paper is the operator committing to "the
     problem is proven and this is the answer", so the swarm should stop burning
-    codex compute. Graceful (no ``--force``) — never drops an in-flight round's
+    dsh compute. Graceful (no ``--force``) — never drops an in-flight round's
     verified work. Idempotent (an idle/absent swarm is a no-op).
 
     **Failure-isolated:** a stop failure is reported, NEVER raised — it must not
@@ -554,7 +554,7 @@ def _paper_write_chunked(pdir: Path, resolved: List[str], source: str,
 
     # SUCCESS from generation → same downstream as single-pass: leak-gate the
     # STITCHED whole, then write / provenance / log. The stitch is deterministic
-    # Python, so there is no codex `res` for this final write; the per-phase codex
+    # Python, so there is no dsh `res` for this final write; the per-phase dsh
     # runs were logged inside generate()'s phase_logs (recorded below).
     tex = gen["tex"]
     provenance = gen.get("provenance")
@@ -610,7 +610,7 @@ def paper_write(project: Optional[str] = None,
     """Write the first complete ``main.tex`` for a project from its verified fact
     graph, house style, and structure plan. Assembles the writer prompt (facts +
     style + structure + brief + ledger, all embedded — nothing enters your
-    context), drives a local codex, and writes the emitted LaTeX to the paper's
+    context), drives a local dsh, and writes the emitted LaTeX to the paper's
     workspace ``main.tex`` (default paper → ``<project>/paper/main.tex``; a
     non-default ``paper_id`` → ``<project>/papers/<paper_id>/main.tex``).
 
@@ -813,7 +813,7 @@ def paper_subgraph(project: Optional[str] = None,
                    paper_id: Optional[str] = None) -> Dict[str, Any]:
     """Return a COMPACT, deterministic skeleton of the paper's target-fact closure
     for YOU (the main agent) to read and SELECT from — statements only, no proofs,
-    no codex, no writes.
+    no dsh, no writes.
 
     This is the curation seam. The whole transitive closure's full proofs overflow a
     single writer pass on a large project; but v2-style single-pass writing works
@@ -830,7 +830,7 @@ def paper_subgraph(project: Optional[str] = None,
     The target is the RECORDED headline (arg > brief > TARGET.md, via
     ``resolve_headline``). Unset → ``status='needs_target'`` (same refusal as
     ``paper_write``). Returns ``{status, headline, headline_source, count, facts,
-    paper_id}``. Deterministic + side-effect-free (no codex, no run log)."""
+    paper_id}``. Deterministic + side-effect-free (no dsh, no run log)."""
     pdir = resolve_project(project)
     resolved, source = assemble.resolve_headline(pdir, headline, paper_id)
     if source == "unset":
@@ -863,7 +863,7 @@ def reference_audit(project: Optional[str] = None,
     """Audit the paper's bibliography: the auditor reads ONLY ``main.tex`` + the
     reference ledger (no facts, no style guide) and **flags** entries it cannot
     vouch for — it has no tools and no network. The ONLINE verification of the
-    flags is ``reference_verify``'s job (the reference verifier: networked codex,
+    flags is ``reference_verify``'s job (the reference verifier: networked dsh,
     gateway ``search_arxiv_theorems`` + web_search); the auditor only flags. Writes
     NO ``main.tex``. Returns ``{findings, ledger_path, status, returncode, log_path}`` where
     ``findings`` is the auditor's report text (small) — feed it to ``reference_verify``."""
@@ -894,7 +894,7 @@ def reference_audit(project: Optional[str] = None,
 _VALID_VERDICTS = {"verified", "corrected", "rejected", "unverifiable", "retarget-internal"}
 # The verifier emits one verdict object per flagged entry. Per the role prompt's
 # §4 contract, that may be JSON **or** a labelled key/value block ("YAML-ish") —
-# and real codex runs strongly prefer the latter, one ```yaml``` block per entry.
+# and real dsh runs strongly prefer the latter, one ```yaml``` block per entry.
 # So we accept both: JSON first (balanced ``{...}`` spans), then a dependency-free
 # labelled-block parser (no PyYAML — it is not a dependency).
 _JSON_OBJ_RE = re.compile(r"\{[^{}]*\}", re.DOTALL)
@@ -930,7 +930,7 @@ def _coerce_scalar(v: str) -> Any:
 
 
 def _parse_labelled_blocks(text: str) -> List[Dict[str, Any]]:
-    """Parse the verifier's YAML-ish output (the shape a real codex emits): one
+    """Parse the verifier's YAML-ish output (the shape a real dsh emits): one
     block per entry, each a ``field: value`` list with column-0 top-level fields
     (``key``/``verdict``/``source_url``/``note``/``replacement_suggestion``) and an
     optional indented ``confirmed_metadata:`` sub-mapping (or ``null``). Code fences
@@ -984,7 +984,7 @@ def _parse_verdicts(text: str) -> List[Dict[str, Any]]:
     Tolerant by design. **JSON first:** try the whole stdout as JSON (array or
     single object), then scan for individual balanced ``{...}`` spans embedded in
     prose. **Labelled blocks second:** if JSON yields nothing, parse the YAML-ish
-    ``field: value`` blocks a real codex emits (``_parse_labelled_blocks``). Either
+    ``field: value`` blocks a real dsh emits (``_parse_labelled_blocks``). Either
     way a block is kept only if it carries a ``key`` + a ``verdict`` in
     ``_VALID_VERDICTS``. Returns ``[]`` when nothing parses (an empty / junk run —
     the caller treats that as a non-promotion, so the ledger is not touched)."""
@@ -1129,10 +1129,10 @@ def reference_verify(project: Optional[str] = None,
     Assembles the verifier prompt (``roles/AGENTS.md`` +
     ``roles/REFERENCE_VERIFIER_PROMPT.md`` + ``main.tex`` + ``REFERENCE_LEDGER.md``
     + the auditor's ``findings`` — and **no fact graph / style / structure**), then
-    drives a codex over the **networked** path (``--dangerously-bypass-approvals-
-    and-sandbox`` + the danus gateway at ``DANUS_ROLE=verifier`` exposing only
-    ``search_arxiv_theorems`` + codex's built-in ``web_search``; empty cwd, so codex
-    still cannot touch the project tree). It parses the per-entry verdict objects,
+    drives DSH over the **networked** role overlay: the danus gateway at
+    ``DANUS_ROLE=verifier`` exposes only ``search_arxiv_theorems``, alongside
+    configured web tools. File/shell tools are disabled for this renderer; an
+    empty cwd alone is not a read-access boundary. It parses per-entry verdict objects,
     and on an honest ``ok`` run updates ``REFERENCE_LEDGER.md`` **in place** — each
     verified/corrected row's ``verified-by`` becomes ``verifier`` (+ ``source_url``
     + authoritative metadata), other verdicts set ``verified-by: unverified
@@ -1237,7 +1237,7 @@ def paper_revise(project: Optional[str] = None, compile_log: Optional[str] = Non
     annotations, or a GAP-FILL round). The reviser gets
     ``main.tex`` + the REVISION_LOG tail + the trigger — NO fact graph except the
     specific verified facts a gap-fill round embeds. The reviser stays a
-    stdout-only isolated codex; ALL compile / split / leak logic lives HERE.
+    stdout-only isolated dsh; ALL compile / split / leak logic lives HERE.
 
     **Gap-fill mode (``verifier_feedback`` and/or ``add_facts``).** The whole-document
     ``paper_verify_math`` → revise INTERFACE: after the whole-doc verifier judges the
@@ -1284,7 +1284,7 @@ def paper_revise(project: Optional[str] = None, compile_log: Optional[str] = Non
 
     Returns ``{tex_path, status, returncode, revision_log_path, leak_findings,
     compile, compile_attempts, stderr_tail, log_path}``; on any non-``ok``
-    codex status nothing is written (regression-safe)."""
+    dsh status nothing is written (regression-safe)."""
     pdir = resolve_project(project)
     ws = assemble.paper_workspace(pdir, paper_id)
     tex_path = ws / "main.tex"
@@ -1300,7 +1300,7 @@ def paper_revise(project: Optional[str] = None, compile_log: Optional[str] = Non
     # chooses FACTS to add; this tool embeds those facts' verified statements+proofs
     # so the reviser can PROVE the missing lemmas into the paper. One trigger carrying
     # {verifier feedback, main-agent opinion (notes), facts}, together. Deterministic,
-    # no codex, done before the drive loop.
+    # no dsh, done before the drive loop.
     gap_fill_text: Optional[str] = None
     gap_fill_facts: List[str] = []
     if verifier_feedback or add_facts:
@@ -1387,13 +1387,13 @@ def paper_revise(project: Optional[str] = None, compile_log: Optional[str] = Non
         out["returncode"] = res["returncode"]
         out["stderr_tail"] = res["stderr_tail"]
         if res["status"] != "ok":
-            # non-ok codex: nothing written (regression). Report honestly.
+            # non-ok dsh: nothing written (regression). Report honestly.
             out["error"] = res.get("error")
             out["compile"] = "not run"
             out["compile_attempts"] = 0
             out["log_path"] = _write_run_log(
                 "paper_revise", pdir, prompt, res,
-                {"mode/trigger": mode_trigger, "split": "n/a (non-ok codex)",
+                {"mode/trigger": mode_trigger, "split": "n/a (non-ok dsh)",
                  "leak_findings": [], "compile": "not run", "compile_attempts": 0,
                  "compile_outcomes": compile_outcomes}, envelope=out, paper_id=paper_id)
             return out
@@ -1655,12 +1655,12 @@ def paper_verify_math(project: Optional[str] = None,
     a correct set of facts becomes an incorrect paper. So the paper must not be
     delivered until it passes verification **as written**.
 
-    How it runs: one fresh paper-math verifier codex (a dedicated role, separate
+    How it runs: one fresh paper-math verifier dsh (a dedicated role, separate
     from the fact-submission verifier and the reference verifier) reads the whole
     ``main.tex`` development in order plus the confirmed REFERENCE_LEDGER, trusts
     the confirmed citations, and judges the paper's own reasoning +
     self-containedness. No fact graph, no slicing, no resident service — a
-    one-shot codex run per call.
+    one-shot dsh run per call.
 
     Size: if the assembled prompt exceeds ``pmv.whole_doc_budget()``
     (``DANUS_PAPER_VERIFY_WHOLE_DOC_CAP``, default ~700K chars) the tool does NOT
@@ -1678,7 +1678,7 @@ def paper_verify_math(project: Optional[str] = None,
     surfaced to the operator. Deliver is gated by ``pmv.deliver_ok`` reading the
     ledger (``correct`` / ``trusted`` / ``overridden`` pass).
 
-    **Honesty:** a failed verify RUN (codex error / unparseable verdict) is
+    **Honesty:** a failed verify RUN (dsh error / unparseable verdict) is
     ``status='verify_error'`` — NOT a paper that passed. ``status='passed'``
     requires an actual all-clear (no must-fix findings).
 
@@ -1708,7 +1708,7 @@ def paper_verify_math(project: Optional[str] = None,
     prev = pmv.read_ledger(ledger_path)
     cap = pmv.whole_doc_budget()
 
-    # WHOLE-DOCUMENT verification by the paper-math verifier (a dedicated codex
+    # WHOLE-DOCUMENT verification by the paper-math verifier (a dedicated dsh
     # role, separate from the fact-submission verifier and the reference verifier):
     # it reads the whole paper in order, TRUSTS the ledger's confirmed precise
     # external citations, and scrutinizes the paper's own reasoning +
@@ -1747,7 +1747,7 @@ def paper_verify_math(project: Optional[str] = None,
     ign_text = ""
     res = _drive(prompt)
     if res["status"] != "ok":
-        verify_error = res.get("error") or "paper-math verifier codex returned non-ok"
+        verify_error = res.get("error") or "paper-math verifier dsh returned non-ok"
         hints = verify_error
     else:
         verdict, must_fix, ignorable = _parse_paper_verdict(res["stdout"])

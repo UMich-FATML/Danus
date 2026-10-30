@@ -61,7 +61,7 @@ Broad and creative search is allowed. Do not restrict yourself to the surface vo
 11. If a useful theorem is found, do not stop at the statement alone. Read the proof of that theorem as well and extract any techniques, constructions, reductions, or proof patterns that may help with the current target statement.
 12. Expand the definitions and concepts appearing in that theorem using the surrounding context of the paper, and check carefully whether the theorem is actually applicable to the current situation. Be explicit about terminology that may shift across contexts. If the theorem is only a partial result for the current target, also analyze why its method does not prove the full statement — which extra hypotheses it needs, where the proof breaks without them, and what obstruction this reveals (do not merely force the current object to satisfy the extra hypotheses).
 13. Record not only what the theorem says, but also what its proof suggests for the current active program and missing mechanism.
-14. If the theorem search returns no useful information, switch to Codex's built-in web search.
+14. If the theorem search returns no useful information, switch to DSH's built-in web search.
 15. Use the built-in web search either to look for specific math results or to gather background information, terminology, standard references, canonical constructions/examples/counterexamples, or remote analogies.
 16. If the built-in web search reveals a useful paper, again download it, extract its text, and read the relevant extracted text before using it in reasoning.
 17. If the built-in web search reveals a useful theorem, also read its proof, expand its local definitions from the paper context, and extract the techniques that look adaptable to the current active program. Apply the same partial-result analysis if the web result is only a partial result.
@@ -145,7 +145,7 @@ proof step that cites it, with its complete statement + `paper_id`/`theorem_id`/
 
 - `search_arxiv_theorems` (Matlas arXiv theorem search — verbatim statements)
 - `gm_search` (check whether a sibling already found/used this result)
-- Codex built-in web search (fallback when the theorem search is too weak)
+- DSH built-in web search (fallback when the theorem search is too weak)
 - local memory (`events`) for the search log — direct file write
 
 ## Failure Logging

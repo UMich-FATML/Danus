@@ -11,7 +11,7 @@ The machinery ``danus.write_paper`` and ``danus.human_summary`` share:
   raised exception, with the "no artifact"/"no report" noun parameterized;
 - ``leak_findings`` — a generic leak scanner; the caller supplies its own patterns.
 
-No network, no codex here; every function is pure/testable.
+No network, no DSH here; every function is pure/testable.
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ def resolve_project(project: Optional[str] = None) -> Path:
 
 def section(name: str, body: str) -> str:
     """Wrap ``body`` in explicit BEGIN/END delimiters so tests can assert a
-    section's presence/absence and codex can navigate the prompt."""
+    section's presence/absence and DSH can navigate the prompt."""
     return f"\n\n===== BEGIN {name} =====\n{body}\n===== END {name} =====\n"
 
 
@@ -92,7 +92,7 @@ def body_sections(raw: str) -> str:
     ``## statement`` / ``## proof`` / ``## intuition`` sections), with the YAML
     frontmatter STRIPPED. This is the scrub: no ``fact_id`` / ``author`` /
     ``problem_id`` / ``predecessors`` / ``glossary_introduces`` / ``external_refs``
-    reaches the codex — the renderer works from mathematics, not pipeline ids. The
+    reaches the DSH — the renderer works from mathematics, not pipeline ids. The
     body math is preserved verbatim; never summarize a proof."""
     lines = raw.splitlines()
     for i, line in enumerate(lines):
@@ -108,11 +108,11 @@ def body_sections(raw: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# codex-outcome honesty classifier                                            #
+# DSH-outcome honesty classifier                                            #
 # --------------------------------------------------------------------------- #
 
 def classify_outcome(cp_or_exc: Any, *, artifact_noun: str = "artifact") -> Dict[str, Any]:
-    """Classify a codex run honestly into a small dict.
+    """Classify a DSH run honestly into a small dict.
 
     ``cp_or_exc`` is either a ``subprocess.CompletedProcess`` (the driver
     returned) or the exception the driver raised (``TimeoutExpired`` /
@@ -123,10 +123,14 @@ def classify_outcome(cp_or_exc: Any, *, artifact_noun: str = "artifact") -> Dict
     that was expected ("artifact" / "report") for the empty-stdout message."""
     if isinstance(cp_or_exc, subprocess.TimeoutExpired):
         return {"status": "timeout", "returncode": None, "stdout": "",
-                "stderr_tail": "", "error": f"codex timed out after {cp_or_exc.timeout}s"}
+                "stderr_tail": "", "error": f"DSH timed out after {cp_or_exc.timeout}s"}
     if isinstance(cp_or_exc, FileNotFoundError):
         return {"status": "error", "returncode": None, "stdout": "",
-                "stderr_tail": "", "error": f"codex binary not found: {cp_or_exc}"}
+                "stderr_tail": "", "error": f"DSH binary not found: {cp_or_exc}"}
+
+    if isinstance(cp_or_exc, (ValueError, OSError)):
+        return {"status": "error", "returncode": None, "stdout": "",
+                "stderr_tail": "", "error": f"DSH configuration/launch failed: {cp_or_exc}"}
 
     cp = cp_or_exc
     stdout = cp.stdout or ""
@@ -134,11 +138,11 @@ def classify_outcome(cp_or_exc: Any, *, artifact_noun: str = "artifact") -> Dict
     if cp.returncode != 0:
         return {"status": "error", "returncode": cp.returncode, "stdout": stdout,
                 "stderr_tail": stderr_tail,
-                "error": f"codex exited with nonzero code {cp.returncode}"}
+                "error": f"DSH exited with nonzero code {cp.returncode}"}
     if not stdout.strip():
         return {"status": "error", "returncode": cp.returncode, "stdout": "",
                 "stderr_tail": stderr_tail,
-                "error": f"codex produced empty stdout (no {artifact_noun})"}
+                "error": f"DSH produced empty stdout (no {artifact_noun})"}
     return {"status": "ok", "returncode": cp.returncode, "stdout": stdout,
             "stderr_tail": stderr_tail}
 

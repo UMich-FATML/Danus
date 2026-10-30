@@ -134,7 +134,7 @@ this one's).
 | `dead_end` | usually false | worker | why a path failed; if killed by a counterexample it can be verifiable |
 | `direction` | false | worker | "worth exploring X" — an unverifiable judgment |
 | `obstacle` | false | worker | "X seems to block this route" — an unverifiable judgment |
-| `master_guidance` | false | **main agent** | the periodic high-intelligence strategic steer the main agent reasons out itself (optionally via exploratory codex subagents): critical decomposition, direction judgment, core thinking. Authoritative — workers heed it (but it is still not a correctness source). |
+| `master_guidance` | false | **main agent** | the periodic high-intelligence strategic steer the main agent reasons out itself (optionally via exploratory DSH subagents): critical decomposition, direction judgment, core thinking. Authoritative — workers heed it (but it is still not a correctness source). |
 | `verification` | false | the worker's `fact_submit` (auto) | a trace of a verification outcome: the verdict, plus `fact_id` (on accept) or `repair_hints` (on reject). Logged automatically by `fact_submit` so the verifier's feedback is not lost — the verifier itself stays stateless. Siblings read these to learn from rejections. |
 | `elaboration` | false | **main agent** | the periodic, high-signal-to-noise progress synthesis the main agent writes before deciding the next steer: mathematical verdict, closed/obsolete routes, interface contracts, dangerous heuristics, missing bridge lemmas (§2.4). It is the synthesis the main agent reasons over to produce `master_guidance`. Same cadence. |
 
@@ -173,11 +173,12 @@ operates per-claim on the shared store.
 
 ### 2.3 master_guidance — the strategic channel
 
-The main agent operates and schedules N parallel workers. On a fixed cadence
-(e.g. hourly, or whenever all workers finish a round) it reasons out the most
-critical decomposition, direction judgment, and core thinking itself —
-optionally spawning exploratory codex subagents (high intelligence, expensive ⇒
-periodic, not per-round). It records the result as a `master_guidance` entry.
+The main agent operates and schedules N parallel workers while continuously
+reasoning at the high level and maintaining rolling speculative DSH subagents.
+It reviews the whole project on 30-minute control beats and four-hour audits,
+as well as on material events, and records its strategic decisions as
+`master_guidance`. DSH goals and separate schedules support continuity and
+reminders; see root `AGENTS.md` for lifecycle and human-authorized resume.
 Workers read `master_guidance` and follow it as authoritative steering. (This
 concentrates the expensive intelligence at the strategic level, shrinking
 per-worker peer consults.)
@@ -201,7 +202,7 @@ main-agent skill**, not in code.
 
 The elaboration is recorded as an `elaboration` entry (`claim` = the one-line
 verdict, `evidence` = the full templated body, `links` = cited `fact_id`s); the
-main agent then reasons over it — optionally via exploratory codex subagents — to
+main agent then reasons over it — optionally via exploratory DSH subagents — to
 produce the next `master_guidance` (§2.3). Instead of peer workers reviewing each
 other, the main agent distills the shared state and reasons over it at high
 intelligence. Operationally it is also what the main agent draws on to keep the
@@ -377,7 +378,7 @@ is prose.
 ## 5. Usage logic (typical round)
 
 1. **Main agent**, periodically: reason over the shared stores itself (optionally
-   via exploratory codex subagents) → append a `master_guidance` entry to global
+   via exploratory DSH subagents) → append a `master_guidance` entry to global
    memory.
 2. **Worker**, each round:
    - read `master_guidance` + recent global memory (others' findings, dead ends)

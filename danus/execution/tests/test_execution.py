@@ -1,9 +1,9 @@
-"""Offline tests for danus.execution — layout + scaffolding (no codex, no network).
+"""Offline tests for danus.execution — layout + scaffolding (no dsh, no network).
 
 Covers the pure-function layer: role parsing, the typed WorkerLayout, and what
-``do_new`` writes (dirs + AGENTS.md/skills symlinks + .codex/config.toml content +
+``do_new`` writes (dirs + WORKER.md/skills symlinks + .dsh/gateway.patch.json content +
 .role/TASK/.status). The loop's stop-condition behavior (which spawns the loop
-subprocess against a stubbed codex) is exercised in the orchestration test suite.
+subprocess against a stubbed dsh) is exercised in the orchestration test suite.
 
 Runs standalone (``python -m danus.execution.tests.test_execution``) and pytest.
 """
@@ -82,7 +82,7 @@ def test_worker_layout_paths():
     assert wl.pid.name == L.PID_FILE and wl.lock.name == L.LOCK_FILE
     assert wl.stop.name == L.STOP_FILE and wl.status.name == L.STATUS_FILE
     assert wl.logs.name == L.LOGS_DIR
-    assert wl.codex_config == Path("/x/proj/workers/high/.codex/config.toml")
+    assert wl.dsh_config == Path("/x/proj/workers/high/.dsh/gateway.patch.json")
 
 
 def test_resolve_and_target():
@@ -106,13 +106,14 @@ def test_do_new_scaffolds_project(tmp: Path):
             wl = L.WorkerLayout(L.worker_dir("P", w))
             assert wl.local_memory.is_dir() and wl.logs.is_dir()
             # symlinks resolve to the (stub) contract + skills
-            assert (wl.dir / "AGENTS.md").resolve() == L.worker_md().resolve()
+            assert (wl.dir / "WORKER.md").resolve() == L.worker_md().resolve()
             assert (wl.dir / ".agents" / "skills").resolve() == L.worker_skills_dir().resolve()
-            cfg = wl.codex_config.read_text()
-            assert 'DANUS_ROLE = "worker"' in cfg
-            assert 'args = ["-m", "danus.gateway"]' in cfg  # pinned MCP launch
-            assert "tool_timeout_sec = 3600" in cfg
-            assert f'DANUS_AUTHOR = "{w}"' in cfg and str(pdir) in cfg
+            import sys
+            cfg = json.loads(wl.dsh_config.read_text())[0]["insert"][0]["config"]
+            assert cfg["env"]["DANUS_ROLE"] == "worker"
+            assert cfg["args"] == ["-m", "danus.gateway"] and cfg["command"] == sys.executable
+            assert cfg["toolCallTimeoutMs"] == 3600000
+            assert cfg["env"]["DANUS_AUTHOR"] == w and cfg["env"]["DANUS_PROJECT_DIR"] == str(pdir)
             role = wl.role.read_text()
             assert f"REASONING_EFFORT={eff}" in role and "MODEL=gpt-5.5" in role
             assert "(unassigned" in wl.task.read_text()
@@ -133,8 +134,8 @@ def test_do_new_verify_url_from_env(tmp: Path):
     with _project_env(tmp):
         with _env(DANUS_VERIFY_URL="http://127.0.0.1:9999/verify"):
             scaffold.do_new("Q", roles="high:1")
-        cfg = L.WorkerLayout(L.worker_dir("Q", "high")).codex_config.read_text()
-        assert 'DANUS_VERIFY_URL = "http://127.0.0.1:9999/verify"' in cfg
+        cfg = L.WorkerLayout(L.worker_dir("Q", "high")).dsh_config.read_text()
+        assert json.loads(cfg)[0]["insert"][0]["config"]["env"]["DANUS_VERIFY_URL"] == "http://127.0.0.1:9999/verify"
 
 
 # --- loop helpers (pure) --------------------------------------------------- #
@@ -175,11 +176,11 @@ def test_read_role_defaults_and_overrides(tmp: Path):
     wl.dir.mkdir(parents=True)
     # no .role -> defaults (the neutral model unset → the built-in gpt-5.6-sol
     # default)
-    with _env(DANUS_WORKER_MODEL=None, DANUS_MAIN_MODEL=None, DANUS_CODEX_MODEL=None):
+    with _env(DANUS_WORKER_MODEL=None, DANUS_MAIN_MODEL=None):
         role = loop._read_role(wl)
     assert role["MODEL"] == "gpt-5.6-sol" and role["ROLE"] == "high" and role["DANUS_AUTHOR"] == "xhigh"
-    # the neutral DANUS_CODEX_MODEL is the worker default when .role omits MODEL
-    with _env(DANUS_WORKER_MODEL=None, DANUS_MAIN_MODEL=None, DANUS_CODEX_MODEL="neutral-model"):
+    # the neutral DANUS_MAIN_MODEL is the worker default when .role omits MODEL
+    with _env(DANUS_WORKER_MODEL=None, DANUS_MAIN_MODEL="neutral-model"):
         role = loop._read_role(wl)
     assert role["MODEL"] == "neutral-model"
     wl.role.write_text("# comment\nMODEL=gpt-x\nREASONING_EFFORT=xhigh\n\nROLE=xhigh\n")

@@ -4,7 +4,7 @@
     GET  /health                    -> {status: "ok", pid: <int>}
 
 /verify runs the deterministic pre-checks (``prechecks.run_prechecks``) and, if
-they pass, cold-starts a fresh codex verifier (``launcher.run_codex_verification``)
+they pass, cold-starts a fresh dsh verifier (``launcher.run_dsh_verification``)
 whose verdict the gateway's ``fact_submit`` uses to decide whether a claim becomes
 a fact. The verifier is an LLM, NOT a formal proof assistant, with no human in the
 loop by default — see the verifier contract (``agents/contracts/verifier.md``).
@@ -18,7 +18,7 @@ from typing import Any, Dict
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from .launcher import _allocate_run_id, run_codex_verification
+from .launcher import _allocate_run_id, run_dsh_verification
 from .prechecks import run_prechecks
 
 
@@ -47,4 +47,4 @@ def verify(request: VerifyRequest) -> Dict[str, Any]:
         status_code, detail = rejected
         raise HTTPException(status_code=status_code, detail=detail)
     run_id = _allocate_run_id(request.statement)
-    return run_codex_verification(run_id=run_id, statement=request.statement, proof=request.proof)
+    return run_dsh_verification(run_id=run_id, statement=request.statement, proof=request.proof)

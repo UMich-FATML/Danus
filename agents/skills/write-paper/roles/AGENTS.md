@@ -1,6 +1,6 @@
 # AGENTS.md — the standing contract for the paper agent
 
-This is the role-agnostic contract every `write-paper` codex role reads first. It states
+This is the role-agnostic contract every `write-paper` DSH role reads first. It states
 the rules that hold no matter which role is running. The role-specific prompts in
 this folder add to it; they never relax it.
 

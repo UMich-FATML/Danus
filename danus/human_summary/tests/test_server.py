@@ -1,6 +1,6 @@
 """Offline tests for danus.human_summary.server — the summary_write tool.
 
-Monkeypatches ``server.driver.run_codex`` with a fake CompletedProcess (no codex,
+Monkeypatches ``server.driver.run_dsh`` with a fake CompletedProcess (no codex,
 no network, no API). Verifies:
   - summary_write on clean codex output writes report.md, status ok, no leaks,
     small dict (no full report body leaked into the return);
@@ -25,8 +25,8 @@ from ._fixtures import EXAMPLE_PROJECT, env, temp_project
 
 @contextmanager
 def _fake_codex(stdout="", returncode=0, stderr="", raise_exc=None):
-    """Replace server.driver.run_codex with a stub returning a CompletedProcess."""
-    orig = server.driver.run_codex
+    """Replace server.driver.run_dsh with a stub returning a CompletedProcess."""
+    orig = server.driver.run_dsh
 
     def fake(prompt, *, model, effort, timeout=0):
         if raise_exc is not None:
@@ -34,11 +34,11 @@ def _fake_codex(stdout="", returncode=0, stderr="", raise_exc=None):
         return subprocess.CompletedProcess(args=["fake"], returncode=returncode,
                                            stdout=stdout, stderr=stderr)
 
-    server.driver.run_codex = fake
+    server.driver.run_dsh = fake
     try:
         yield
     finally:
-        server.driver.run_codex = orig
+        server.driver.run_dsh = orig
 
 
 # a clean, id-free report body — passes the leak check

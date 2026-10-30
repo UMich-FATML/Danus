@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from .service import VerifyRequest, app
-from .launcher import run_codex_verification
+from .launcher import run_dsh_verification
 from .prechecks import run_prechecks
 
-__all__ = ["app", "VerifyRequest", "run_codex_verification", "run_prechecks"]
+__all__ = ["app", "VerifyRequest", "run_dsh_verification", "run_prechecks"]

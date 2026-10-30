@@ -2,12 +2,12 @@
 
 Both ``danus.write_paper`` (the publication LaTeX paper) and
 ``danus.human_summary`` (the reader-facing progress report) are peer renderers:
-each drives a **one-shot isolated codex** over a fully-embedded, scrubbed prompt
+each drives a **one-shot isolated DSH** over a fully-embedded, scrubbed prompt
 and returns small, honest results (paths + status + flags, never the artifact
 body). This module owns the machinery they share:
 
-- ``driver`` — the one-shot isolated codex driver (empty cwd + read-only sandbox +
-  prompt on stdin; codex stdout is the artifact). Reads neutral ``DANUS_CODEX_*``
+- ``driver`` — the one-shot isolated DSH driver (empty cwd + read-only sandbox +
+  prompt on stdin; DSH stdout is the artifact). Reads neutral ``DANUS_MAIN_*``
   env for its defaults; each renderer's server layers its own per-service override
   on top.
 - ``common`` — the shared pure primitives: project resolution + path-escape

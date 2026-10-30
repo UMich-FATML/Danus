@@ -23,22 +23,23 @@ verifier) decides; and a result only *exists* once that authority has accepted i
   surfaces (is this the answer? push the paper outward?), and set the spending and
   operating preferences. You talk to Danus in natural language through the main
   agent.
-- **The main agent (codex).** The orchestrator and your entry point. It
-  **steers — it does not do the mathematics.** It sets up projects, runs the
-  strategy loop, assigns work, monitors, and drives the report/paper skills. It
+- **The main agent (DSH).** The orchestrator and your entry point. It
+  **reasons continuously at the high level** and keeps a rolling lane of
+  speculative subagents. It sets up projects, compares proof architectures,
+  assigns work, monitors, and drives the report/paper skills. It
   *structurally cannot* fabricate a result (it has no `fact_submit` tool).
-- **The codex workers.** A swarm of autonomous `codex` sessions that actually
+- **The DSH workers.** A swarm of autonomous `DSH` sessions that actually
   prove lemmas. Each runs a round loop: it reads its assignment and the shared
   state, picks proving skills, works, and submits results for verification. Workers
   run detached and resume from persisted memory, so no single crash loses verified
   work.
-- **The verifier.** A **cold-start** `codex` judge, started fresh for each check,
+- **The verifier.** A **cold-start** `DSH` judge, started fresh for each check,
   that is the **sole authority on correctness**. A result becomes a fact **if and
   only if** the verifier returns a `correct` verdict. It is an LLM, not a formal
   proof assistant — see `security-and-trust.md`.
 - **The strategy loop.** The main agent's high-intelligence step: it distills
   the project's state (an *elaboration*) and reasons over it itself — optionally
-  spawning exploratory codex subagents — then writes the direction it decides on
+  spawning exploratory DSH subagents — then writes the direction it decides on
   as the swarm's steering (`master_guidance`).
 
 ## The three memory tiers, and the one truth boundary
@@ -84,20 +85,27 @@ For the on-disk shapes and exact fields, see `../danus/core/DATA_MODEL.md`.
 
 ## The strategy loop (how the swarm is steered)
 
-The main agent does not micro-manage proofs; it steers, periodically, on genuine
-new state:
+The main agent does not micro-manage detailed derivations; it reasons continuously
+and performs mandatory 30-minute control beats and four-hour strategy audits,
+even without new facts:
 
 1. **Elaborate** — distill the shared stores into a high-signal synthesis (verdict,
    closed routes, interfaces, dangers, missing bridge lemmas). *(the `elaboration`
    skill)*
 2. **Decide direction** — reason over that synthesis (optionally via exploratory
-   codex subagents) and settle on the next steer.
+   DSH subagents) and settle on the next steer.
 3. **Record & dispatch** — store the decided direction as `master_guidance` and give
    each worker its per-round assignment (`danus assign`).
-4. **Monitor** — watch progress; repeat when there is genuinely new state.
+4. **Monitor** — synthesize returns and replenish useful speculative work promptly;
+   repeat global reviews on the fixed schedule even without new state.
+
+DSH goals provide continuity; separate DSH schedules provide reminders. List/reuse
+timers, catch up once after downtime, and delete timers on pause/completion.
+Rearming a disarmed goal requires a direct human continuation request, never just
+a scheduled reminder. Speculation remains unverified until a worker submits it.
 
 The steer is the main agent's own reasoning — there is no external strategy
-transport to configure. Workers and the verifier always run on your own codex
+transport to configure. Workers and the verifier always run on your own DSH
 backend.
 
 ## The lifecycle of a project
@@ -113,7 +121,7 @@ initialize ─▶ new project ─▶ strategy loop ⇄ worker swarm ─▶ verif
                                                                (publishable LaTeX)
 ```
 
-- **initialize** — first-run setup: your profile, the codex backend, the git
+- **initialize** — first-run setup: your profile, the DSH backend, the git
   branch, the spend ceiling; brings the verify service up.
 - **new** — create a project (`PROBLEM.md` + a worker roster). One project = one
   problem, its own memory and fact graph.

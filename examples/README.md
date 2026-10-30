@@ -7,8 +7,8 @@
 > entry points). Each script also carries an "EXAMPLE, NOT CORE" banner so it is
 > never mistaken for the control path.
 
-Danus has exactly one unattended mode: **run codex as a
-resident main agent** (`ops/main-agent-tmux.sh`). The **strategic judgment** —
+For unattended operation, keep the **DSH main runtime resident**
+(`ops/main-agent-tmux.sh` is an optional tmux example). The **strategic judgment** —
 synthesize progress, record `master_guidance`, and dispatch workers — lives in
 that main agent and its skills (`elaboration`), *not* in shell.
 The `watchdog.sh` loop here is only the unattended **liveness** scaffolding
@@ -21,18 +21,27 @@ prose follows `OPERATOR.md`; the scripts themselves only emit English mechanics.
 ## `ops/` — unattended-operation scripts
 
 ### `main-agent-tmux.sh`
-Starts codex detached in a tmux session, in the repo root, so it inherits
-`AGENTS.md`, the skills (`.agents/skills`), and `.codex/config.toml`. `.codex/config.toml`
-is what wires the gateway MCP server (`python -m danus.gateway` via `bin/danus-mcp`);
-this launcher does **not** wire MCP itself.
+Starts the repository's configured DSH main launcher in tmux. The `.dsh/`
+configuration and main overlay wire role-gated MCP, `.agents/skills/` and the
+completed-root-turn checkpoint hook; the tmux example is only supervision.
+Use persistent goals and separate DSH schedules as described in root `AGENTS.md`:
+list/reuse timers, catch up once on authorized resume, and delete on pause or
+completion. Timers do not authorize rearming a disarmed goal.
 
 ```bash
 bash examples/ops/main-agent-tmux.sh
 tmux attach -t danus-main        # watch / interact; DANUS_MAIN_TMUX overrides the name
 ```
 
-Requires `tmux` and the `codex` CLI on PATH. The main agent is the sole control
-path — there is no separate Node CLI or persona-seed layer.
+The main launcher's default isolated Web host provides native schedule tools
+while running (loopback port `8090`, configurable through `DANUS_MAIN_PORT`).
+Its explicit `--headless` alternative is one-shot and has no schedule service;
+tmux does not add timers or keep reminders running after process exit. Starting
+the main host requires operating authorization and does not modify another GUI.
+
+Requires `tmux` and the repository's explicitly configured DSH binary/provider
+route. The main agent is the strategic control path; no shell loop substitutes
+for its mathematical reasoning.
 
 ### `watchdog.sh <project>`
 Liveness / stall alerting. Each beat it probes the verify service at

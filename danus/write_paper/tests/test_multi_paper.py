@@ -73,8 +73,8 @@ def _add_second_theorem(pdir: Path) -> str:
 
 @contextmanager
 def _fake_codex(stdout=""):
-    """Stub server.driver.run_codex; capture the prompts it was driven with."""
-    orig = server.driver.run_codex
+    """Stub server.driver.run_dsh; capture the prompts it was driven with."""
+    orig = server.driver.run_dsh
     calls = {"prompts": []}
 
     def fake(prompt, *, model, effort, timeout=0, networked=False, gateway_role="verifier"):
@@ -82,11 +82,11 @@ def _fake_codex(stdout=""):
         return subprocess.CompletedProcess(args=["fake"], returncode=0,
                                            stdout=stdout, stderr="")
 
-    server.driver.run_codex = fake
+    server.driver.run_dsh = fake
     try:
         yield calls
     finally:
-        server.driver.run_codex = orig
+        server.driver.run_dsh = orig
 
 
 _CLEAN_TEX = (

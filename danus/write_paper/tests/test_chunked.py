@@ -38,7 +38,7 @@ def _fake_codex_router(planner_out, section_outs, planner_rc=0, section_rc=0):
     SECTION-WRITER prompt returns the next element of ``section_outs`` (a list, one
     per section, in call order). ``planner_rc`` / ``section_rc`` set the returncode.
     Captures the prompts in ``.prompts``."""
-    orig = server.driver.run_codex
+    orig = server.driver.run_dsh
     state = {"prompts": [], "sec_i": 0}
 
     def fake(prompt, *, model, effort, timeout=0, networked=False, gateway_role="verifier"):
@@ -53,11 +53,11 @@ def _fake_codex_router(planner_out, section_outs, planner_rc=0, section_rc=0):
         return subprocess.CompletedProcess(args=["fake"], returncode=section_rc,
                                            stdout=out, stderr="")
 
-    server.driver.run_codex = fake
+    server.driver.run_dsh = fake
     try:
         yield state
     finally:
-        server.driver.run_codex = orig
+        server.driver.run_dsh = orig
 
 
 # The example project closure (deterministic; asserted in a threshold test below).

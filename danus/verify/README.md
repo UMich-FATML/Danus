@@ -1,90 +1,62 @@
-# danus.verify — the verify service (sole write-gate)
+# Verify: the proof-verification HTTP service
 
-An **informal-LLM proof verifier** behind a tiny HTTP gateway. It is the sole
-authority on mathematical correctness: a worker's `fact_submit` (in `danus.gateway`)
-calls it, and the candidate fact is written to the fact graph **iff** this service
-returns `verdict: "correct"`.
+This is an informal LLM judge, not a formal proof checker. The worker gateway
+calls `POST /verify` and accepts facts only through the existing verifier gate.
+The v3 correctness contract remains: `correct` exactly when both critical errors
+and gaps are empty. The service returns the structured verifier payload; the
+migration does not reinterpret mathematics or turn snapshots into evidence.
 
-It is **not** a formal / Lean checker — a `gpt-5.6-sol` codex agent reads the
-natural-language markdown proof (logic, theorem application, external-citation
-checking) and returns a verdict. There is **no human in the loop by default** —
-research-level target theorems still need expert review before being trusted.
+## HTTP contract
 
-## Black-box contract
+- `POST /verify {statement, proof}` returns `{verification_report, verdict,
+  repair_hints}`. Reports contain `summary`, `critical_errors`, and `gaps`.
+- 400: deterministic vacuity/P1/P3/P5 precheck rejection.
+- 422: request-model validation failure.
+- 500: invalid launch configuration, missing binary, failed/incomplete DSH turn,
+  absent output, invalid JSON, or non-object JSON.
+- 504: DSH timeout.
+- `GET /health` returns `{status: "ok", pid}` asynchronously, without waiting for
+  occupied verification threadpool slots.
 
-```
-POST /verify
-  request : {"statement": <str, >=1 char>, "proof": <str, >=1 char>}   # application/json
-  200     : {"verification_report": {"summary": str,
-                                      "critical_errors": [{"location": str, "issue": str}, ...],
-                                      "gaps":            [{"location": str, "issue": str}, ...]},
-             "verdict": "correct" | "wrong",
-             "repair_hints": str}                # "" iff verdict == "correct"
-  400     : vacuous input, or a P1/P3/P5 pre-check match (see prechecks.py)
-  422     : request-model validation (empty statement/proof)
-  500     : codex failed / wrote no output / output is not valid JSON / non-dict
-  504     : codex exec timed out (only if CODEX_TIMEOUT_SECONDS is set)
+## Isolated launch
 
-GET /health -> {"status": "ok", "pid": <int>}    # async; never queues behind /verify
-                                                 # pid self-identifies the instance so
-                                                 # doctor/services can tell OUR verify
-                                                 # from a foreign one on a shared port
-```
+Each request atomically allocates a unique output directory. That directory,
+**not a singleton agent home**, is DSH's cwd and writable workspace. It contains
+a copy of `VERIFIER.md` and receives `verification.json` (legacy spelling
+`verificationt.json` remains accepted). Existing output is never reused as a new
+verification result. Only verifier instruction candidates and explicit verify
+skill roots load. The MCP plugin runs `sys.executable -m danus.gateway` with
+`DANUS_ROLE=verifier`, the existing read-only role, and `toolCallTimeoutMs=3600000`.
 
-**Invariant (enforced by the verifier *prompt*, not this code):**
-`verdict == "correct"` ⟺ `critical_errors == []` **and** `gaps == []`. This service
-returns whatever the agent wrote; it does not recompute the verdict.
+The shared `danus.dsh` adapter supplies absolute provider/site JSON patches,
+a complete provider/model/effort row, approval `never`, fresh isolated durable
+DSH and agents homes, and stdin task delivery. It parses JSON events and requires
+process exit zero, terminal reason `{kind: "completed"}`, a session ID and final
+event before reading verification output. Raw logs/session IDs remain available
+for audit. Timeout cleanup terminates then kills the complete child process group.
 
-## Modules
-- `prechecks.py` — pure, offline-testable: vacuousness + P1/P3/P5 hard prohibitions
-  (all env-toggleable, all purely additive — they can only *reject* more).
-- `launcher.py` — cold-start codex launcher (via the shared `danus.codex`): `codex
-  exec --model gpt-5.6-sol --config model_reasoning_effort="xhigh" -C <AGENT_HOME>
-  -c <danus MCP, role=verifier> --dangerously-bypass-approvals-and-sandbox <prompt>`;
-  atomic run-id; reads back `verification.json`. Injects the gateway as **`python
-  -m danus.gateway`**.
-- `service.py` — FastAPI app (`/verify`, `/health`).
+## Configuration
 
-## Run
+| Variable | Meaning/default |
+| --- | --- |
+| `DANUS_DSH_BIN` | Explicit executable; otherwise repository wrapper/PATH `dsh` |
+| `DANUS_DSH_PROVIDER` | Required explicit provider route |
+| `DANUS_DSH_PROVIDER_PATCH` | Required absolute provider-only JSON patch |
+| `DANUS_VERIFY_MODEL` / `DANUS_VERIFY_EFFORT` | Override neutral `DANUS_MAIN_MODEL` / `DANUS_MAIN_EFFORT` |
+| `DANUS_VERIFY_TIMEOUT_SECONDS` | 0 in library; 900 through module entrypoint |
+| `VERIFIER_RESULTS_DIR` | Defaults to `runtime/verifier-runs` |
+| `DANUS_DSH_RUNS_DIR` | Defaults to `runtime/dsh-runs` for raw runtime audit data |
+| `VERIFY_HOST` / `VERIFY_PORT` | `127.0.0.1` / `8091` |
+
+Model and effort must be explicitly supported by the provider patch; historical
+library defaults do not imply provider compatibility. Old runtime environment
+names and singleton `VERIFY_AGENT_HOME` are not launch configuration. Existing
+precheck toggles and thresholds remain unchanged.
 
 ```bash
-python -m danus.verify          # 127.0.0.1:8091, default CODEX_TIMEOUT_SECONDS=900
+pixi run python -m danus.verify
+pixi run python -m pytest danus/verify/tests
 ```
 
-Binds **loopback by default** (set `VERIFY_HOST=0.0.0.0` if the
-gateway runs on another host). Needs a codex CLI: set **`DANUS_CODEX_BIN`** (or
-`codex` on PATH / the repo's `bin/codex` wrapper) and
-an account via `CODEX_HOME` — **there is no built-in fallback path** (BYO). The
-verifier agent runs `python -m danus.gateway`, so `danus` must be installed in that
-environment.
-
-## Configuration (env vars)
-
-| var | default | meaning |
-| --- | --- | --- |
-| `VERIFY_HOST` / `VERIFY_PORT` (or `PORT`) | `127.0.0.1` / `8091` | bind addr (`python -m danus.verify`) |
-| `VERIFY_AGENT_HOME` | `<this dir>/agent` | the codex `-C` working dir (AGENTS.md + skills) |
-| `VERIFIER_RESULTS_DIR` | `<this dir>/runs` | per-verification run dirs (`log.md` + `verification.json`) |
-| `DANUS_CODEX_BIN` | `<repo>/bin/codex` → `which codex` → bare `"codex"` | the codex binary; resolved via the shared `danus.codex` launcher |
-| `DANUS_VERIFY_MODEL` / `DANUS_VERIFY_EFFORT` (fall back to neutral `DANUS_MAIN_MODEL` / `DANUS_MAIN_EFFORT`, aka `DANUS_CODEX_MODEL` / `DANUS_CODEX_EFFORT`) | `gpt-5.6-sol` / `xhigh` | codex knobs |
-| `CODEX_TIMEOUT_SECONDS` | `0` lib / **`900`** via `python -m danus.verify` | per-verification codex timeout |
-| `VERIFY_MIN_STATEMENT_CHARS` / `VERIFY_MIN_PROOF_CHARS` / `VERIFY_MIN_PROOF_WORDS` | 10 / 30 / 5 | vacuousness thresholds |
-| `VERIFY_REJECT_PROBLEM_MD_CITATIONS` / `VERIFY_REJECT_UNPROVEN_CONDITIONALS` / `VERIFY_REJECT_VAGUE_GESTURES` | `1` | toggle P1 / P3 / P5 (`0` disables) |
-
-## How `fact_submit` reaches it
-`danus.gateway`'s `fact_submit` POSTs `{statement, proof}` to `DANUS_VERIFY_URL`
-(e.g. `http://127.0.0.1:8091/verify`), writes the fact **iff** `verdict ==
-"correct"`, and always records the outcome to global memory (kind `verification`).
-Until this service is up and `DANUS_VERIFY_URL` is set, `fact_submit` returns a
-clear "verify service not wired" error.
-
-## Trust assumptions (security)
-
-- The verifier runs `codex exec --dangerously-bypass-approvals-and-sandbox` inside
-  `VERIFY_AGENT_HOME` — that agent home (its `AGENTS.md` + skills) is **trusted
-  input**; do not point it at untrusted content.
-- It is an **LLM judge, not a formal (Lean) checker**, with **no human in the loop
-  by default**; a `correct` verdict writes a permanent fact. Research-level target
-  theorems need expert human review before being trusted.
-- Binds **loopback** by default; `DANUS_VERIFY_TIMEOUT` (900 via `python -m
-  danus.verify`) bounds each codex call.
+Tests are deterministic fake-DSH plumbing tests and do not judge mathematics or
+call models. Expert review is still needed for research-level results.

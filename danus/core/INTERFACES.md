@@ -6,7 +6,7 @@ which of them need a real interface vs. which the agent just does itself. Read
 
 ## Principle: wrap only what the LLM can't do reliably
 
-An LLM agent (codex) can already **read any file, write a line to a file,
+An LLM agent (DSH) can already **read any file, write a line to a file,
 and grep**. So those need **no interface** — wrapping them is noise. Wrap a verb
 as an interface **only** when the LLM can't do it reliably itself:
 
@@ -53,7 +53,7 @@ Minimal set. Form = **MCP** — one stdio MCP server (`danus/gateway/`, a thin
 wrapper over `danus/core/`) exposing the 4 data-structure tools **+
 `search_arxiv_theorems`** (one external integration — Matlas arXiv theorem search,
 returning *verbatim* statements; `danus/integrations/matlas.py`, not a
-data-structure interface but the LLM still can't do it itself). codex
+data-structure interface but the LLM still can't do it itself). DSH
 consumes MCP natively; `DANUS_ROLE`
 selects the per-agent tool subset (worker:
 `gm_add`/`gm_search`/`fact_submit`/`fact_search`/`search_arxiv_theorems`; main:

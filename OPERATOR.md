@@ -1,6 +1,6 @@
 # OPERATOR.md — durable operator profile & standing preferences
 
-> Read by the main agent (codex) at the start of every session — it is NOT
+> Read by the main agent (DSH) at the start of every session — it is NOT
 > auto-loaded, so `AGENTS.md` tells the agent to read it. It is the main agent's
 > **long-term memory of the operator** —
 > the things it learns by asking and must not forget when the session ends. Keep it

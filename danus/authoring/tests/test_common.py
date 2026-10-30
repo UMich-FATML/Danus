@@ -1,6 +1,6 @@
 """Offline tests for danus.authoring.common — the shared renderer primitives.
 
-Zero network / codex. Covers project resolution + path-escape validation, the
+Zero network / DSH. Covers project resolution + path-escape validation, the
 honesty outcome classifier, the frontmatter scrub, section wrapping, verbatim
 file reads, and the generic leak scanner.
 
@@ -100,11 +100,18 @@ def test_classify_outcome_ok_and_honesty_paths():
         artifact_noun="report")
     assert empty["status"] == "error" and "no report" in empty["error"]
 
-    timeout = common.classify_outcome(subprocess.TimeoutExpired(cmd="codex", timeout=1))
+    timeout = common.classify_outcome(subprocess.TimeoutExpired(cmd="DSH", timeout=1))
     assert timeout["status"] == "timeout"
 
-    missing = common.classify_outcome(FileNotFoundError("/nope/codex"))
+    missing = common.classify_outcome(FileNotFoundError("/nope/DSH"))
     assert missing["status"] == "error" and "not found" in missing["error"]
+
+
+def test_configuration_and_launch_errors_are_honest():
+    for exc in (ValueError("provider missing"), OSError("cannot write isolated home")):
+        result = common.classify_outcome(exc)
+        assert result["status"] == "error" and result["stdout"] == ""
+        assert result["returncode"] is None and "configuration/launch" in result["error"]
 
 
 def test_body_sections_strips_frontmatter():

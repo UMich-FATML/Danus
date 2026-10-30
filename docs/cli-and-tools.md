@@ -5,7 +5,7 @@ Danus has two control surfaces:
 1. **The `danus` CLI** — lifecycle verbs you (or the main agent on your behalf) run
    to manage projects and workers.
 2. **The MCP tools** — what the main agent calls in-session. Three MCP servers are
-   wired in `.codex/config.toml`: the role-gated **`danus`** gateway, **`write-paper`**, and
+   wired by the `.dsh/` main overlay and repository main launcher: the role-gated **`danus`** gateway, **`write-paper`**, and
    **`human-summary`**.
 
 You mostly talk to the main agent in natural language; it runs the CLI verbs and
@@ -27,13 +27,21 @@ there is no default project.
 | `start` | `danus start <project>[/<worker>]` | launch the autonomous worker loop(s) |
 | `status` | `danus status <project>[/<worker>] [--json]` | per-worker liveness + round + last activity (`stuck?` is a soft signal) |
 | `stop` | `danus stop <project>[/<worker>] [--force]` | graceful (finish the round, exit at the boundary) or `--force` (kill the process group) |
+| `snapshot` | `danus snapshot <project> [--message TEXT]` | capture best-effort persisted project state; no writer barrier |
+| `snapshots` | `danus snapshots <project> [--json]` | list the project's snapshot history |
+| `restore` | `danus restore <project> <snapshot> [--worker NAME] [--dry-run] [--yes] [--allow-inconsistent]` | preview/restore with backup and generation fence; requires affected workers and project-writing main stopped; leaves restored workers stopped |
+| `recover-restore` | `danus recover-restore <project> --yes` | recover an interrupted restore from its immutable pre-restore backup; inspect state before restarting |
+
+See [Git recovery](git-resume.md) before restore. One history includes shared
+stores and workers; inconsistent captures require explicit override. Automatic
+snapshots run only after complete main turns/worker rounds, never per tool step.
 
 Notes:
 - `finalize` only **records** the answer; it does not stop workers. Deciding a
   verified fact is *the answer* is your call (the main agent surfaces it).
 - `start` launches each worker detached in its own process group, so it survives
   your session; `stop --force` can therefore kill a live worker and its in-flight
-  codex child.
+  DSH child.
 
 ---
 
@@ -68,7 +76,7 @@ the verifier can write nothing. See `security-and-trust.md`.
 
 ## MCP server 2 — `write-paper`: fact graph → publishable paper
 
-Six tools (`danus/write_paper/server.py`), each wrapping an isolated codex role.
+Six tools (`danus/write_paper/server.py`), each wrapping an isolated DSH role.
 The main agent calls them with small structured args; the heavy bytes (style guide,
 fact-graph math) are assembled inside the tool and never enter the main agent's
 context. Each tool returns a small honest envelope (status + paths + flags + a
@@ -76,7 +84,7 @@ context. Each tool returns a small honest envelope (status + paths + flags + a
 
 | tool | role | what it does |
 |---|---|---|
-| `paper_subgraph` | (curation, no codex) | return a compact, deterministic statements-only skeleton of the target-fact closure for the main agent to read and pick from — no codex, no writes; feed the chosen `fact_ids` to `paper_write` |
+| `paper_subgraph` | (curation, no DSH) | return a compact, deterministic statements-only skeleton of the target-fact closure for the main agent to read and pick from — no DSH, no writes; feed the chosen `fact_ids` to `paper_write` |
 | `paper_write` | writer | draft the first complete `main.tex` from the target closure + house style |
 | `reference_audit` | reference auditor | **offline** — flag bibliography entries it cannot vouch for (no tools/network) |
 | `reference_verify` | reference verifier | **online** — verify flagged citations (arXiv + web) and update the reference ledger in place |
@@ -103,7 +111,7 @@ language in `OPERATOR.md`).
 
 ## Main-agent skills (invoked in-session, not MCP tools)
 
-The main agent also has codex **skills** under `.agents/skills/`:
+The main agent also has DSH **skills** under `.agents/skills/`:
 `initialize` (first-run setup), `elaboration` (the strategy synthesis the main
 agent reasons over to set direction), `human-summary`, and `write-paper`. These
 orchestrate the tools and CLI above; see `operating-guide.md` for how they fit the

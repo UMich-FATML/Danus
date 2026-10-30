@@ -1,11 +1,11 @@
-# write-paper — codex-facing prompts & style (embedded by the `write-paper` MCP)
+# write-paper — DSH-facing prompts & style (embedded by the `write-paper` MCP)
 
-These are the **codex-facing** fixed files for the paper roles. They are **not**
-read by the main agent (codex), and **not** symlinked into a worker's codex home the
+These are the **DSH-facing** fixed files for the paper roles. They are **not**
+read by the main agent (DSH), and **not** symlinked into a worker's DSH home the
 way `agents/skills/worker` / `agents/skills/verify` are. Instead the **`write-paper`
 MCP service** (`danus.write_paper`, launched by `bin/write-paper-mcp`) reads them
-at call time and **embeds them verbatim into the one-shot codex prompt** — the
-paper codex runs in an empty cwd and reads nothing from disk.
+at call time and **embeds them verbatim into the one-shot DSH prompt** — the
+paper DSH runs in an empty cwd and reads nothing from disk.
 
 Located via `DANUS_WRITE_PAPER_SKILL_DIR` (default `<repo>/agents/skills/write-paper`).
 
@@ -14,7 +14,7 @@ Located via `DANUS_WRITE_PAPER_SKILL_DIR` (default `<repo>/agents/skills/write-p
 - `boilerplate/` — `acknowledgement.md`
 - `examples/`    — a toy end-to-end project used as the offline-test fixture + a worked demo
 
-**These files are agent-facing runtime inputs, embedded verbatim into the codex
+**These files are agent-facing runtime inputs, embedded verbatim into the DSH
 prompts** — keep developer/architecture orientation OUT of them and put it here
 instead. The role map, for developers:
 
@@ -45,6 +45,6 @@ writer prompt would exceed the model context window, the MCP auto-chunks (thresh
 fixed preamble/front matter + a section plan covering every closure fact + the
 bibliography), then one `PAPER_SECTION_WRITER` call per section (that section's full
 proofs + the fixed macros/labels + other results' statements for `\ref`), then a
-deterministic Python stitch. Each call is still a non-agentic isolated codex; the
+deterministic Python stitch. Each call is still a non-agentic isolated DSH; the
 single-pass path is unchanged when the closure fits. See
 `.agents/skills/write-paper/SKILL.md` Stage 2.

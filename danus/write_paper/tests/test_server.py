@@ -1,6 +1,6 @@
 """Offline tests for danus.write_paper.server — the four MCP tools.
 
-Monkeypatches ``server.driver.run_codex`` with a fake CompletedProcess (no codex,
+Monkeypatches ``server.driver.run_dsh`` with a fake CompletedProcess (no codex,
 no network, no API). Verifies: paper_write writes main.tex + parses [GAP:] +
 returns a small dict; a nonzero codex exit yields status != ok and writes nothing
 (no false success); reference_audit returns findings and writes no main.tex;
@@ -23,8 +23,8 @@ from ._fixtures import EXAMPLE_PROJECT, env, temp_project, write_ledger, write_m
 
 @contextmanager
 def _fake_codex(stdout="", returncode=0, stderr="", raise_exc=None):
-    """Replace server.driver.run_codex with a stub returning a CompletedProcess."""
-    orig = server.driver.run_codex
+    """Replace server.driver.run_dsh with a stub returning a CompletedProcess."""
+    orig = server.driver.run_dsh
 
     def fake(prompt, *, model, effort, timeout=0, networked=False, gateway_role="verifier"):
         if raise_exc is not None:
@@ -32,21 +32,21 @@ def _fake_codex(stdout="", returncode=0, stderr="", raise_exc=None):
         return subprocess.CompletedProcess(args=["fake"], returncode=returncode,
                                            stdout=stdout, stderr=stderr)
 
-    server.driver.run_codex = fake
+    server.driver.run_dsh = fake
     try:
         yield
     finally:
-        server.driver.run_codex = orig
+        server.driver.run_dsh = orig
 
 
 @contextmanager
 def _fake_codex_seq(outputs):
-    """Replace server.driver.run_codex with a stub that returns a SEQUENCE of stdout
+    """Replace server.driver.run_dsh with a stub that returns a SEQUENCE of stdout
     values across successive calls (for the reviser's compile-retry re-drives). Each
     element is either a stdout str (returncode 0) or an (stdout, returncode, stderr)
     tuple. The last element is repeated if more calls arrive. Captures the prompts
     it was driven with in ``.prompts``."""
-    orig = server.driver.run_codex
+    orig = server.driver.run_dsh
     calls = {"n": 0, "prompts": []}
 
     def fake(prompt, *, model, effort, timeout=0, networked=False, gateway_role="verifier"):
@@ -60,11 +60,11 @@ def _fake_codex_seq(outputs):
             out, rc, err = item, 0, ""
         return subprocess.CompletedProcess(args=["fake"], returncode=rc, stdout=out, stderr=err)
 
-    server.driver.run_codex = fake
+    server.driver.run_dsh = fake
     try:
         yield calls
     finally:
-        server.driver.run_codex = orig
+        server.driver.run_dsh = orig
 
 
 @contextmanager
@@ -572,20 +572,20 @@ def test_paper_write_leak_gate_allows_paper_vocabulary():
 
 def test_per_service_model_effort_are_independent():
     # DANUS_WRITE_PAPER_* wins for write_paper; DANUS_HUMAN_SUMMARY_* wins for
-    # human_summary; both fall back to the neutral DANUS_CODEX_* — the two services
+    # human_summary; both fall back to the neutral DANUS_MAIN_* — the two services
     # are independently tunable.
     from danus.human_summary import server as hs_server
 
     with env(DANUS_WRITE_PAPER_MODEL="wp-model", DANUS_WRITE_PAPER_EFFORT="wp-eff",
              DANUS_HUMAN_SUMMARY_MODEL="hs-model", DANUS_HUMAN_SUMMARY_EFFORT="hs-eff",
-             DANUS_CODEX_MODEL="neutral-model", DANUS_CODEX_EFFORT="neutral-eff"):
+             DANUS_MAIN_MODEL="neutral-model", DANUS_MAIN_EFFORT="neutral-eff"):
         assert server._model() == "wp-model" and server._effort() == "wp-eff"
         assert hs_server._model() == "hs-model" and hs_server._effort() == "hs-eff"
 
-    # per-service unset → both fall back to the neutral DANUS_CODEX_*
+    # per-service unset → both fall back to the neutral DANUS_MAIN_*
     with env(DANUS_WRITE_PAPER_MODEL=None, DANUS_WRITE_PAPER_EFFORT=None,
              DANUS_HUMAN_SUMMARY_MODEL=None, DANUS_HUMAN_SUMMARY_EFFORT=None,
-             DANUS_CODEX_MODEL="neutral-model", DANUS_CODEX_EFFORT="neutral-eff"):
+             DANUS_MAIN_MODEL="neutral-model", DANUS_MAIN_EFFORT="neutral-eff"):
         assert server._model() == "neutral-model" and server._effort() == "neutral-eff"
         assert hs_server._model() == "neutral-model" and hs_server._effort() == "neutral-eff"
 
@@ -837,12 +837,12 @@ def test_reference_verify_uses_networked_path():
         return subprocess.CompletedProcess(args=["fake"], returncode=0, stdout=_VERDICT_JSON, stderr="")
 
     with temp_project(with_tex=True) as pdir, env(DANUS_PROJECT_DIR=str(pdir), DANUS_AGENTS_ROOT=None):
-        orig = server.driver.run_codex
-        server.driver.run_codex = fake
+        orig = server.driver.run_dsh
+        server.driver.run_dsh = fake
         try:
             server.reference_verify(findings="verify AC24")
         finally:
-            server.driver.run_codex = orig
+            server.driver.run_dsh = orig
     assert captured == {"networked": True, "gateway_role": "verifier"}
 
 
@@ -1087,8 +1087,8 @@ def test_run_log_paper_write_needs_target_early_return():
         assert out["status"] == "needs_target"
         text = _read_run_log(out)
     # early return: no codex was driven -> the log says so, no prompt
-    assert "(no prompt — early return before codex was driven)" in text
-    assert "(no codex run)" in text
+    assert "(no prompt — early return before dsh was driven)" in text
+    assert "(no dsh run)" in text
     assert "needs_target: True" in text
 
 
@@ -1219,7 +1219,7 @@ def main() -> None:
     test_main_module_runs_build_app()
     print("  [ok] __main__ builds the app and calls run() once")
     test_per_service_model_effort_are_independent()
-    print("  [ok] DANUS_WRITE_PAPER_* vs DANUS_HUMAN_SUMMARY_* independent; both fall back to DANUS_CODEX_*")
+    print("  [ok] DANUS_WRITE_PAPER_* vs DANUS_HUMAN_SUMMARY_* independent; both fall back to DANUS_MAIN_*")
     test_reference_audit_returns_findings_and_writes_no_tex()
     print("  [ok] reference_audit -> findings returned, main.tex untouched")
     test_reference_audit_nonzero_is_honest()
@@ -1253,7 +1253,7 @@ def main() -> None:
     test_run_log_written_on_timeout_raises()
     print("  [ok] run log: written on a codex timeout")
     test_run_log_paper_write_needs_target_early_return()
-    print("  [ok] run log: paper_write needs_target early return logs '(no prompt)'/'(no codex run)'")
+    print("  [ok] run log: paper_write needs_target early return logs '(no prompt)'/'(no dsh run)'")
     test_run_log_reference_audit()
     print("  [ok] run log: reference_audit logs findings + findings_len")
     test_run_log_reference_verify_applied_verdicts()

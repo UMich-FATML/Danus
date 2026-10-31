@@ -9,7 +9,7 @@ verify service returns verbatim as the `/verify` HTTP response:
       "repair_hints": ""            # non-empty iff verdict == "wrong"
     }
 
-It complements the verify service's fake-codex sanity harness; it is a cheap,
+It complements the verify service's fake-DSH sanity harness; it is a cheap,
 LLM-independent guard that the contract stays shaped. It asserts only the
 structural contract, not any mathematical judgement.
 """

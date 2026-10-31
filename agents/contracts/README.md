@@ -10,8 +10,12 @@ the binding operating protocol, distinct from the on-demand skills under
 | `worker.md` | DSH worker | local memory (private) · global memory (`gm_add` / `gm_search`) · fact graph (`fact_submit`); the adaptive proving loop. Loaded per round via the explicit DSH `WORKER.md` role contract. |
 | `verifier.md` | DSH verifier (verify service) | judges `{statement, proof}` → strict verdict; called by `fact_submit`; read-only (only `search_arxiv_theorems`); writes its verdict JSON directly to results/{run_id}/verification.json. |
 
-The main DSH overlay loads the repo-root `AGENTS.md`; role overlays load only
-that role's contract and skills. This file expands the same boundaries.
+The main DSH overlay loads the root [entry map](../../AGENTS.md), which requires
+an operating main agent to read the complete [main-agent contract](main_agent.md)
+before acting. That contract is the single home for detailed main operating
+rules, including goals, schedules, reviews and operator decisions. It does not
+send readers back to the root for missing procedures. Worker/verifier overlays
+load their own role contract and skills; this index is not a substitute for them.
 
 ## The shared spine
 

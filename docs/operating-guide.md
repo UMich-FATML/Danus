@@ -66,8 +66,9 @@ Delete schedules on pause, stop, or completion. A scheduled wake-up cannot rearm
 an active-disarmed goal: `update_goal` resume needs a direct top-level human
 request. Durable paused-to-active transition uses the operator-facing goal control.
 The runtime must remain available to process reminders; workers may continue
-independently, but no offline main reasoning is promised. See root `AGENTS.md`
-for the full review duties and `operations.md` for supervision.
+independently, but no offline main reasoning is promised. See the
+[main-agent operating contract](../agents/contracts/main_agent.md) for the full
+review duties and [operations](operations.md) for supervision.
 
 ## 3. Workers prove; facts accumulate
 

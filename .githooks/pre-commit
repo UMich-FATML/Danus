@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Fast worktree guards only; CI and contributors run the complete offline suite.
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+if ! command -v pixi >/dev/null 2>&1; then
+  echo 'Danus pre-commit: install Pixi and run pixi install; see CONTRIBUTING.md.' >&2
+  exit 1
+fi
+exec pixi run --manifest-path "$ROOT/pixi.toml" lint

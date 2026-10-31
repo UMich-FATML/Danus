@@ -71,7 +71,8 @@ to populate the gitignored environment file or approved external secret source.
 
 Summarize the confirmed route, checked service state and any remaining limitations;
 ask for the problem or return to the original operating request. For an active
-problem follow root `AGENTS.md`: inspect/create/update the persistent goal, keep
+problem read the full [main-agent operating contract](../../../agents/contracts/main_agent.md):
+inspect/create/update the persistent goal, keep
 main high-level reasoning and speculative subagents active, and use the separate
 DSH schedules for 30-minute control and four-hour audit. List/reuse schedules,
 catch up immediately on authorized resume, and delete them on pause/completion.

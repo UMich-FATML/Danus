@@ -15,7 +15,9 @@ danus = { path = ".", editable = true, extras = ["dev"] }
 
 [tasks]
 check = "bash scripts/check.sh"
-test = "python -m pytest danus/ -q"
+lint = "bash scripts/check.sh --fast"
+test = "bash scripts/check.sh"
+install-hooks = "python scripts/install_hooks.py"
 
 [feature.py310.dependencies]
 python = "3.10.*"

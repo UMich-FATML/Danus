@@ -2,14 +2,16 @@
 """Conformance check for the worker proving skills.
 
 Asserts, for every skill folder next to this script:
-  1. SKILL.md exists and opens with a valid YAML frontmatter block
+  1. SKILL.md exists and opens with a recognizable frontmatter block
      (`---` ... `---`) carrying at least `name` and `description`.
+     This is a bounded field check, not a general YAML validator.
   2. The frontmatter `name` equals the folder name.
-  3. The SKILL.md body references no main-only gateway tool.
+  3. The SKILL.md body references no forbidden main-only gateway tool call.
 
-This is a cheap guard so no SKILL.md drifts to a main-only tool (e.g.
-`fact_revoke`) or a nonexistent tool. It is not a runtime dependency; run it
-after editing a skill.
+This is a cheap guard against known main-only calls (e.g. `fact_revoke`). It does
+not resolve arbitrary tool names or enforce runtime authorization. The canonical
+check runner also validates required skill metadata; run `pixi run lint` after
+editing a skill.
 
 Exit 0 = all skills conform; exit 1 = at least one problem (printed).
 """
@@ -111,7 +113,7 @@ def main() -> int:
             print(f"  - {p}")
         return 1
     print(f"OK: all {len(SKILLS)} worker skills conform "
-          f"(frontmatter valid, name==folder, no main-only tools).")
+          f"(required metadata present, name==folder, no forbidden tool-call references).")
     return 0
 
 

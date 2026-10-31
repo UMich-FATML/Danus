@@ -24,7 +24,8 @@ prose follows `OPERATOR.md`; the scripts themselves only emit English mechanics.
 Starts the repository's configured DSH main launcher in tmux. The `.dsh/`
 configuration and main overlay wire role-gated MCP, `.agents/skills/` and the
 completed-root-turn checkpoint hook; the tmux example is only supervision.
-Use persistent goals and separate DSH schedules as described in root `AGENTS.md`:
+Use persistent goals and separate DSH schedules as described in the
+[main-agent operating contract](../agents/contracts/main_agent.md):
 list/reuse timers, catch up once on authorized resume, and delete on pause or
 completion. Timers do not authorize rearming a disarmed goal.
 

@@ -90,7 +90,7 @@ def write_dsh_config(wl: "L.WorkerLayout") -> None:
 # do_new — scaffold a project                                                 #
 # --------------------------------------------------------------------------- #
 
-def do_new(project: str, roles: str = "high:3,xhigh:4",
+def do_new(project: str, roles: str = "max:3",
            model: Optional[str] = None) -> Dict:
     """Scaffold a project dir + one worker home per role. Refuses to clobber an
     existing project dir (no silent overwrite of a live fact graph). Returns

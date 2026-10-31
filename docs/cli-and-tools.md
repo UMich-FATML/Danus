@@ -21,7 +21,7 @@ there is no default project.
 | verb | form | what it does |
 |---|---|---|
 | `list` | `danus list [--json]` | all projects + live worker counts + model |
-| `new` | `danus new <project> [--roles high:3,xhigh:4] [--model M]` | scaffold a project + worker dirs; default roster 3 `high` + 4 `xhigh` |
+| `new` | `danus new <project> [--roles max:3] [--model M]` | scaffold a project + worker dirs; default roster 3 workers at `max` reasoning effort |
 | `assign` | `danus assign <project>/<worker> (--task "…" \| --file P \| --stdin)` | write that worker's per-round `TASK.md` (**replaces**, not appends) |
 | `finalize` | `danus finalize <project> [--paper <paper_id>] [<fact_id> …]` | record the approved target theorem(s) in the paper's `TARGET.md` (what write-paper reads; default paper → `<project>/TARGET.md`, a non-default `--paper` → `<project>/papers/<paper_id>/TARGET.md`). **With no id:** print candidate terminal facts as suggestions (writes nothing) |
 | `start` | `danus start <project>[/<worker>]` | launch the autonomous worker loop(s) |

@@ -33,10 +33,10 @@ setup, operating sessions re-read your profile and the project's `PROBLEM.md`.
 
 Tell the main agent the problem. It will:
 
-1. **Ask the worker roster** — how many `high` + `xhigh` workers (default
-   `high:3,xhigh:4` = 3 + 4).
+1. **Ask the worker roster** — worker count and reasoning effort (default
+   `max:3` = 3 workers at `max` reasoning effort).
 2. **Write `PROBLEM.md`** — your goal, verbatim, under `runtime/projects/<p>/`.
-3. **Scaffold** — `danus new <p> --roles high:N,xhigh:M` (creates the workers, the
+3. **Scaffold** — `danus new <p> --roles max:3` (creates the workers, the
    empty `global_memory/` + `fact_graph/`).
 
 A **project** is the unit of work: one problem, its own memory and fact graph. You

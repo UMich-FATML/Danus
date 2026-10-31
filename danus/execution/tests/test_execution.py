@@ -55,6 +55,10 @@ def _project_env(tmp: Path):
 # --- parse_roles ----------------------------------------------------------- #
 
 def test_parse_roles_default_roster():
+    assert L.parse_roles("max:3") == [("max", "max"), ("max2", "max"), ("max3", "max")]
+
+
+def test_parse_roles_mixed_roster():
     pairs = L.parse_roles("high:3,xhigh:4")
     names = [n for n, _ in pairs]
     assert names == ["high", "high2", "high3", "xhigh", "xhigh2", "xhigh3", "xhigh4"]
@@ -118,6 +122,17 @@ def test_do_new_scaffolds_project(tmp: Path):
             assert f"REASONING_EFFORT={eff}" in role and "MODEL=gpt-5.5" in role
             assert "(unassigned" in wl.task.read_text()
             assert json.loads(wl.status.read_text())["state"] == "created"
+
+
+def test_do_new_default_roster(tmp: Path):
+    with _project_env(tmp):
+        result = scaffold.do_new("P")
+        assert result["workers"] == ["max", "max2", "max3"]
+        meta = json.loads((L.project_dir("P") / "project.json").read_text())
+        assert meta["roles"] == "max:3" and meta["workers"] == result["workers"]
+        for worker in result["workers"]:
+            role = L.WorkerLayout(L.worker_dir("P", worker)).role.read_text().splitlines()
+            assert "REASONING_EFFORT=max" in role and "ROLE=max" in role
 
 
 def test_do_new_refuses_existing(tmp: Path):
@@ -190,14 +205,14 @@ def test_read_role_defaults_and_overrides(tmp: Path):
 
 # --- runner ---------------------------------------------------------------- #
 
-_NO_TMP = {test_parse_roles_default_roster, test_parse_roles_rejects_bad_specs,
-           test_worker_layout_paths, test_resolve_and_target}
+_NO_TMP = {test_parse_roles_default_roster, test_parse_roles_mixed_roster,
+           test_parse_roles_rejects_bad_specs, test_worker_layout_paths, test_resolve_and_target}
 
 
 def main() -> None:
-    for t in [test_parse_roles_default_roster, test_parse_roles_rejects_bad_specs,
-              test_worker_layout_paths, test_resolve_and_target,
-              test_do_new_scaffolds_project, test_do_new_refuses_existing,
+    for t in [test_parse_roles_default_roster, test_parse_roles_mixed_roster,
+              test_parse_roles_rejects_bad_specs, test_worker_layout_paths, test_resolve_and_target,
+              test_do_new_scaffolds_project, test_do_new_default_roster, test_do_new_refuses_existing,
               test_do_new_verify_url_from_env, test_parse_last_fact_id,
               test_deadline_passed, test_write_status_atomic_and_stamps,
               test_read_role_defaults_and_overrides]:

@@ -1,7 +1,7 @@
 """``danus`` — the main agent's control surface over DSH workers.
 
     danus list   [--json]
-    danus new    <project> [--roles high:3,xhigh:4] [--model M]
+    danus new    <project> [--roles max:3] [--model M]
     danus assign <project>/<worker> (--task "…" | --file P | --stdin)
     danus finalize <project> [--paper <paper_id>] [<fact_id> ...]
     danus start  <project>[/<worker>]
@@ -427,7 +427,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     n = sub.add_parser("new", help="scaffold a project + worker dirs")
     n.add_argument("project")
-    n.add_argument("--roles", default="high:3,xhigh:4", help="e.g. high:3,xhigh:4 (default)")
+    n.add_argument("--roles", default="max:3", help="e.g. max:3 (default)")
     n.add_argument("--model", default=None)
 
     a = sub.add_parser("assign", help="write a worker's per-round TASK.md")

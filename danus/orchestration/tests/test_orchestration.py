@@ -99,6 +99,18 @@ def _kill_project(project: str):
 
 # --- filesystem verb tests ------------------------------------------------- #
 
+def test_new_default_roster(tmp: Path):
+    with _project_env(tmp):
+        cli.main(["new", "P"])
+        meta = json.loads((L.project_dir("P") / "project.json").read_text())
+        assert meta["roles"] == "max:3"
+        assert meta["workers"] == ["max", "max2", "max3"]
+        for worker in meta["workers"]:
+            role = L.WorkerLayout(L.worker_dir("P", worker)).role.read_text().splitlines()
+            assert "REASONING_EFFORT=max" in role
+        assert cli.build_parser().parse_args(["new", "Q", "--roles", "high:2"]).roles == "high:2"
+
+
 def test_assign_replace_and_rejects(tmp: Path):
     with _project_env(tmp):
         cli.do_new("P", roles="high:1")
@@ -232,7 +244,8 @@ def test_missing_dsh_returns_error_state(tmp: Path):
 # --- runner ---------------------------------------------------------------- #
 
 def main() -> None:
-    fs_tests = [test_assign_replace_and_rejects, test_status_before_start, test_list]
+    fs_tests = [test_new_default_roster, test_assign_replace_and_rejects,
+                test_status_before_start, test_list]
     loop_tests = [test_loop_runs_rounds_then_exits, test_graceful_stop, test_force_stop,
                   test_idempotent_start, test_project_wide_targets,
                   test_missing_dsh_returns_error_state]

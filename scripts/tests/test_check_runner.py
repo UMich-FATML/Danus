@@ -12,7 +12,7 @@ SPEC.loader.exec_module(check)
 def test_check_environment_drops_ambient_routes_and_credentials(tmp_path):
     env = check.isolated_env(tmp_path, {
         "PATH": "/usr/bin", "HOME": "/example", "DANUS_MAIN_MODEL": "live",
-        "DSH_SESSION_ID": "live-session", "CODEX_HOME": "/private", "KIMI_MODEL_NAME": "live",
+        "DSH_SESSION_ID": "live-session", "CODEX_HOME": "/private",
         "OPENAI_API_KEY": "not-a-real-key", "GH_TOKEN": "not-a-real-token",
         "VERIFY_PORT": "9999", "DATABASE_PASSWORD": "not-a-real-password",
     })
@@ -21,7 +21,7 @@ def test_check_environment_drops_ambient_routes_and_credentials(tmp_path):
     assert env["DSH_AGENTS_HOME"] == str(tmp_path / "agents")
     assert env["DANUS_DSH_RUNS_DIR"] == str(tmp_path / "runs")
     assert not any(key in env for key in ("DANUS_MAIN_MODEL", "DSH_SESSION_ID", "CODEX_HOME",
-                                          "KIMI_MODEL_NAME", "OPENAI_API_KEY", "GH_TOKEN",
+                                          "OPENAI_API_KEY", "GH_TOKEN",
                                           "VERIFY_PORT", "DATABASE_PASSWORD"))
 
 

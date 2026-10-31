@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def isolated_env(home: Path, source: dict[str, str] | None = None) -> dict[str, str]:
     source = os.environ if source is None else source
     env = {key: value for key, value in source.items()
-           if not key.startswith(("DANUS_", "CODEX_", "KIMI_", "DSH_", "VERIFY_", "VERIFIER_"))
+           if not key.startswith(("DANUS_", "CODEX_", "DSH_", "VERIFY_", "VERIFIER_"))
            and not any(word in key.upper() for word in ("API_KEY", "TOKEN", "SECRET", "PASSWORD"))}
     env.update(DSH_HOME=str(home / "dsh"), DSH_AGENTS_HOME=str(home / "agents"),
                DANUS_DSH_RUNS_DIR=str(home / "runs"), PYTHONDONTWRITEBYTECODE="1")

@@ -68,8 +68,7 @@ request that the agent try harder.
 
 This fork starts from upstream's `codex` v3 line; feature branches carry engine
 changes. Deployment branches may carry operator-specific configuration, but the
-source baseline keeps [OPERATOR.md](OPERATOR.md) blank. Never import old Kimi branch
-architecture merely because it exists in local Git history.
+source baseline keeps [OPERATOR.md](OPERATOR.md) blank.
 
 Commit only your changed paths. Subjects are at most 50 characters, capitalized,
 imperative, and have no trailing period. Bodies are at most 280 characters and

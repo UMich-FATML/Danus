@@ -8,8 +8,7 @@ Base: upstream/fork `codex` at `6d92e8d415933ca2ef52fd1a4da73fdfcd418f1c`
 Replace Codex with DSH for every runtime role and add best-effort project Git
 checkpoints with fresh-session recovery. Preserve upstream v3's main reasoning
 agent, speculative subagents, verifier-gated workers, HTTP/MCP interfaces, and
-existing truth-store formats. Do not port the older Kimi deployment or consult
-transport. Do not push, deploy, or run paid model probes as part of implementation.
+existing truth-store formats. Do not push, deploy, or run paid model probes as part of implementation.
 
 ## Decisions approved by the operator
 
@@ -118,8 +117,6 @@ Run tests on Python 3.10/3.13 through Pixi/CI.
 
 ## Decision log
 
-- 2026-10-30: Inspected fresh fork and found local old-Kimi main was not the target;
-  checkout subsequently switched externally to the fresh codex baseline.
 - 2026-10-30: Corrected the design note's separate-git-dir assumption: that command
   leaves a discoverable `.git` pointer. Use explicit Git metadata/worktree arguments.
 - 2026-10-30: Operator selected fresh-session restore and best-effort capture; rejected
